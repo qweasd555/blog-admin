@@ -124,133 +124,92 @@ const getActivityType = (type) => {
 
 const loadData = async () => {
   try {
-    // 加载真实数据
-    
-    // 获取用户总数 - 尝试不同的表名
-    let userCount = 0
-    const tableNames = ['profiles', 'users', 'user']
-    
-    for (const tableName of tableNames) {
-      try {
-        const { count, error } = await supabase
-          .from(tableName)
-          .select('*', { count: 'exact', head: true })
-        
-        if (!error && count) {
-          userCount = count
-          console.log(`✅ 从表 ${tableName} 获取到用户数据: ${count}`)
-          break
-        }
-      } catch (err) {
-        console.log(`❌ 表 ${tableName} 不存在或查询失败`)
-      }
-    }
-    
-    stats.value.totalUsers = userCount
+    console.log('🔍 开始连接Supabase数据库获取统计数据...')
     
     // 获取文章总数
-    let postCount = 0
-    try {
-      const { count, error } = await supabase
-        .from('posts')
-        .select('*', { count: 'exact', head: true })
-      
-      if (!error) {
-        postCount = count || 0
-      }
-    } catch (err) {
-      console.log('文章表不存在')
-    }
+    const { count: postCount, error: postError } = await supabase
+      .from('posts')
+      .select('*', { count: 'exact', head: true })
     
-    stats.value.totalPosts = postCount
+    if (!postError) {
+      stats.value.totalPosts = postCount || 0
+      console.log('✅ 文章总数:', postCount)
+    } else {
+      console.error('❌ 获取文章总数失败:', postError)
+      stats.value.totalPosts = 0
+    }
     
     // 获取评论总数
-    let commentCount = 0
-    try {
-      const { count, error } = await supabase
-        .from('comments')
-        .select('*', { count: 'exact', head: true })
-      
-      if (!error) {
-        commentCount = count || 0
-      }
-    } catch (err) {
-      console.log('评论表不存在')
+    const { count: commentCount, error: commentError } = await supabase
+      .from('post_comments')
+      .select('*', { count: 'exact', head: true })
+    
+    if (!commentError) {
+      stats.value.totalComments = commentCount || 0
+      console.log('✅ 评论总数:', commentCount)
+    } else {
+      console.error('❌ 获取评论总数失败:', commentError)
+      stats.value.totalComments = 0
     }
     
-    stats.value.totalComments = commentCount
+    // 由于没有用户表，用户相关数据使用默认值
+    stats.value.totalUsers = 0
+    stats.value.todayUsers = 0
     
-    // 获取今日新增用户
-    const today = new Date().toISOString().split('T')[0]
-    let todayUserCount = 0
+    // 获取最近活动 - 文章发布
+    const { data: recentPosts, error: postsError } = await supabase
+      .from('posts')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(5)
     
-    for (const tableName of tableNames) {
-      try {
-        const { count, error } = await supabase
-          .from(tableName)
-          .select('*', { count: 'exact', head: true })
-          .gte('created_at', today)
-        
-        if (!error && count) {
-          todayUserCount = count
-          break
-        }
-      } catch (err) {
-        // 忽略错误，继续尝试下一个表
-      }
-    }
-    
-    stats.value.todayUsers = todayUserCount
-    
-    // 获取最近活动
-    try {
-      const { data: recentPosts, error: postsError } = await supabase
-        .from('posts')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(5)
-      
-      if (!postsError && recentPosts) {
-        recentPosts.forEach(post => {
-          recentActivities.value.push({
-            type: '文章',
-            description: `文章 "${post.title}" 发布`,
-            time: new Date(post.created_at).toLocaleString('zh-CN')
-          })
+    if (!postsError && recentPosts) {
+      recentPosts.forEach(post => {
+        recentActivities.value.push({
+          type: '文章',
+          description: `文章 "${post.title || '无标题'}" 发布`,
+          time: new Date(post.created_at).toLocaleString('zh-CN')
         })
-      }
-    } catch (err) {
-      console.log('无法获取最近文章')
+      })
+      console.log('✅ 获取最近文章活动成功')
+    } else {
+      console.error('❌ 获取最近文章活动失败:', postsError)
     }
     
-    try {
-      const { data: recentComments, error: commentsError } = await supabase
-        .from('comments')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(5)
-      
-      if (!commentsError && recentComments) {
-        recentComments.forEach(comment => {
-          recentActivities.value.push({
-            type: '评论',
-            description: `用户发表了新评论`,
-            time: new Date(comment.created_at).toLocaleString('zh-CN')
-          })
+    // 获取最近活动 - 评论
+    const { data: recentComments, error: commentsError } = await supabase
+      .from('post_comments')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(5)
+    
+    if (!commentsError && recentComments) {
+      recentComments.forEach(comment => {
+        recentActivities.value.push({
+          type: '评论',
+          description: `用户发表了新评论`,
+          time: new Date(comment.created_at).toLocaleString('zh-CN')
         })
-      }
-    } catch (err) {
-      console.log('无法获取最近评论')
+      })
+      console.log('✅ 获取最近评论活动成功')
+    } else {
+      console.error('❌ 获取最近评论活动失败:', commentsError)
+    }
+    
+    // 如果没有任何数据，添加一些默认活动
+    if (recentActivities.value.length === 0) {
+      recentActivities.value.push({
+        type: '系统',
+        description: '系统初始化完成',
+        time: new Date().toLocaleString('zh-CN')
+      })
     }
     
     // 按时间排序
     recentActivities.value.sort((a, b) => new Date(b.time) - new Date(a.time))
     recentActivities.value = recentActivities.value.slice(0, 4)
     
-    // 如果所有数据都是0，显示提示信息
-    if (stats.value.totalUsers === 0 && stats.value.totalPosts === 0 && stats.value.totalComments === 0) {
-      ElMessage.warning('数据库中没有找到数据，请检查数据库表结构')
-    }
+    console.log('✅ 仪表盘数据加载完成')
     
   } catch (error) {
     console.error('加载数据失败:', error)

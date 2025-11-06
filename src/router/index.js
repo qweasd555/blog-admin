@@ -11,28 +11,41 @@ const routes = [
     component: () => import('@/views/Login.vue')
   },
   {
-    path: '/dashboard',
-    name: 'Dashboard',
-    component: () => import('@/views/Dashboard.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/users',
-    name: 'Users',
-    component: () => import('@/views/Users.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/posts',
-    name: 'Posts',
-    component: () => import('@/views/Posts.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/comments',
-    name: 'Comments',
-    component: () => import('@/views/Comments.vue'),
-    meta: { requiresAuth: true }
+    path: '/',
+    component: () => import('@/views/Layout.vue'),
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: 'dashboard',
+        name: 'Dashboard',
+        component: () => import('@/views/Dashboard.vue')
+      },
+      {
+        path: 'users',
+        name: 'Users',
+        component: () => import('@/views/Users.vue')
+      },
+      {
+        path: 'posts',
+        name: 'Posts',
+        component: () => import('@/views/Posts.vue')
+      },
+      {
+        path: 'posts/detail/:id',
+        name: 'PostDetail',
+        component: () => import('@/views/PostDetail.vue')
+      },
+      {
+        path: 'posts/edit/:id?',
+        name: 'PostEdit',
+        component: () => import('@/views/PostEdit.vue')
+      },
+      {
+        path: 'comments',
+        name: 'Comments',
+        component: () => import('@/views/Comments.vue')
+      }
+    ]
   }
 ]
 

@@ -35,19 +35,19 @@
           text-color="#bfcbd9"
           active-text-color="#409EFF"
         >
-          <el-menu-item index="/dashboard">
+          <el-menu-item index="Dashboard">
             <el-icon><Odometer /></el-icon>
             <span>仪表盘</span>
           </el-menu-item>
-          <el-menu-item index="/users">
+          <el-menu-item index="Users">
             <el-icon><User /></el-icon>
             <span>用户管理</span>
           </el-menu-item>
-          <el-menu-item index="/posts">
+          <el-menu-item index="Posts">
             <el-icon><Document /></el-icon>
             <span>文章管理</span>
           </el-menu-item>
-          <el-menu-item index="/comments">
+          <el-menu-item index="Comments">
             <el-icon><ChatDotRound /></el-icon>
             <span>评论管理</span>
           </el-menu-item>
@@ -74,12 +74,26 @@ const activeMenu = ref('')
 const userInfo = ref({ username: '管理员' })
 
 onMounted(() => {
-  activeMenu.value = route.path
+  activeMenu.value = route.name || ''
   const userData = localStorage.getItem('admin_user')
   if (userData) {
     userInfo.value = JSON.parse(userData)
+  } else {
+    // 从当前用户获取真实信息
+    loadCurrentUserInfo()
   }
 })
+
+const loadCurrentUserInfo = async () => {
+  try {
+    // 这里可以连接数据库获取当前登录用户的真实信息
+    // 目前先使用默认的管理员信息
+    userInfo.value = { username: '管理员', role: 'admin' }
+  } catch (error) {
+    console.error('加载用户信息失败:', error)
+    userInfo.value = { username: '管理员' }
+  }
+}
 
 const handleLogout = () => {
   ElMessageBox.confirm('确定要退出登录吗？', '提示', {

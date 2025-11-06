@@ -20,7 +20,11 @@
         </el-input>
         
         <div class="action-buttons">
-          <el-button type="primary" @click="handleRefresh">
+          <el-button type="primary" @click="createPost">
+            <el-icon><Plus /></el-icon>
+            新建文章
+          </el-button>
+          <el-button @click="handleRefresh">
             <el-icon><Refresh /></el-icon>
             刷新
           </el-button>
@@ -39,14 +43,7 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column prop="views" label="浏览量" width="100" />
-        <el-table-column prop="status" label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 'published' ? 'success' : 'warning'">
-              {{ row.status === 'published' ? '已发布' : '草稿' }}
-            </el-tag>
-          </template>
-        </el-table-column>
+        <el-table-column prop="views" label="文章点赞量" width="100" />
         <el-table-column label="操作" width="200">
           <template #default="{ row }">
             <el-button size="small" @click="viewPost(row)">
@@ -78,9 +75,12 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Refresh } from '@element-plus/icons-vue'
 import { supabase } from '@/lib/supabase'
 
+const router = useRouter()
 const loading = ref(false)
 const searchKeyword = ref('')
 const currentPage = ref(1)
@@ -109,12 +109,16 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleString('zh-CN')
 }
 
+const createPost = () => {
+  router.push('/posts/edit')
+}
+
 const viewPost = (post) => {
-  ElMessage.info(`查看文章: ${post.title}`)
+  router.push(`/posts/detail/${post.id}`)
 }
 
 const editPost = (post) => {
-  ElMessage.info(`编辑文章: ${post.title}`)
+  router.push(`/posts/edit/${post.id}`)
 }
 
 const deletePost = async (post) => {
@@ -129,10 +133,22 @@ const deletePost = async (post) => {
       }
     )
     
+    // 从数据库中删除文章
+    const { error } = await supabase
+      .from('posts')
+      .delete()
+      .eq('id', post.id)
+    
+    if (error) {
+      throw error
+    }
+    
+    // 从前端列表中删除
     posts.value = posts.value.filter(p => p.id !== post.id)
     ElMessage.success('删除成功')
   } catch (error) {
-    // 用户取消操作
+    console.error('删除文章失败:', error)
+    ElMessage.error(`删除文章失败: ${error.message}`)
   }
 }
 
@@ -140,71 +156,177 @@ const loadPosts = async () => {
   try {
     loading.value = true
     
-    // 尝试不同的表名
-    const tableNames = ['posts', 'articles', 'post']
-    let postData = []
-    let foundTable = false
+    console.log('🔍 开始连接Supabase数据库获取文章数据...')
     
-    for (const tableName of tableNames) {
+    // 首先尝试从多个可能的用户表获取用户数据
+    let userProfiles = []
+    const userTables = ['user_profiles', 'profiles', 'users']
+    
+    for (const table of userTables) {
       try {
-        // 尝试不同的查询方式
-        let query = supabase
-          .from(tableName)
+        console.log(`🔄 尝试从 ${table} 表获取用户数据...`)
+        const { data: userData, error: userError } = await supabase
+          .from(table)
           .select('*')
-          .order('created_at', { ascending: false })
+          .limit(100)
         
-        // 尝试关联查询，如果失败则使用简单查询
-        try {
-          const { data, error } = await query.select(`
-            *,
-            profiles:author_id (username, email)
-          `)
-          
-          if (!error && data) {
-            postData = data
-            foundTable = true
-            console.log(`✅ 从表 ${tableName} 成功加载文章数据（关联查询）`)
-            break
-          }
-        } catch (err) {
-          // 如果关联查询失败，尝试简单查询
-          const { data, error } = await supabase
-            .from(tableName)
-            .select('*')
-            .order('created_at', { ascending: false })
-          
-          if (!error && data) {
-            postData = data
-            foundTable = true
-            console.log(`✅ 从表 ${tableName} 成功加载文章数据（简单查询）`)
-            break
-          }
+        if (!userError && userData && userData.length > 0) {
+          console.log(`✅ 成功从 ${table} 表获取用户数据:`, userData.length)
+          userProfiles = userData
+          break
         }
-      } catch (err) {
-        console.log(`❌ 表 ${tableName} 查询失败:`, err)
+      } catch (tableError) {
+        console.log(`❌ ${table} 表查询失败:`, tableError.message)
       }
     }
     
-    if (!foundTable) {
-      ElMessage.warning('未找到文章数据表，请检查数据库表结构')
-      posts.value = []
+    // 如果用户表都为空，创建一个默认用户
+    if (userProfiles.length === 0) {
+      console.log('📝 创建默认用户数据作为备用')
+      userProfiles = [{
+        id: 'default-admin',
+        username: 'admin',
+        nickname: '管理员',
+        email: 'admin@example.com'
+      }]
+    }
+    
+    // 获取文章数据
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*')
+      .order('created_at', { ascending: false })
+    
+    if (error) {
+      console.error('❌ 获取文章数据失败:', error)
+      ElMessage.error(`获取文章数据失败: ${error.message}`)
       return
     }
     
-    // 转换数据格式
-    posts.value = postData.map(post => ({
-      id: post.id,
-      title: post.title || '无标题',
-      author: post.author || post.profiles?.username || post.profiles?.email?.split('@')[0] || '匿名作者',
-      created_at: post.created_at || new Date().toISOString(),
-      views: post.views || 0,
-      status: post.status || 'draft'
-    }))
+    console.log('✅ 成功获取文章数据:', data?.length || 0)
     
-    ElMessage.success(`成功加载 ${posts.value.length} 篇文章`)
+    // 转换数据格式，智能匹配用户信息
+    posts.value = data.map(post => {
+      // 智能匹配作者信息
+      let authorName = '匿名作者'
+      
+      // 策略1：优先通过user_id精确匹配
+      if (post.user_id) {
+        const matchedUser = userProfiles.find(u => u.id === post.user_id)
+        if (matchedUser) {
+          authorName = matchedUser.nickname || matchedUser.username || '匿名作者'
+          console.log(`✅ 通过user_id匹配到用户: ${authorName}`)
+        }
+      }
+      
+      // 策略2：通过邮箱模糊匹配
+      if (authorName === '匿名作者' && post.author && typeof post.author === 'string') {
+        const authorEmail = post.author.toLowerCase()
+        const matchedUser = userProfiles.find(u => u.email && u.email.toLowerCase().includes(authorEmail))
+        if (matchedUser) {
+          authorName = matchedUser.nickname || matchedUser.username || '匿名作者'
+          console.log(`✅ 通过邮箱匹配到用户: ${authorName}`)
+        }
+      }
+      
+      // 策略3：通过昵称模糊匹配
+      if (authorName === '匿名作者') {
+        const authorFields = [
+          post.username, 
+          post.author, 
+          post.author_name, 
+          post.author_nickname,
+          post.author_username
+        ]
+        
+        for (const field of authorFields) {
+          if (field && typeof field === 'string' && field.trim() && field !== 'undefined' && field !== 'null') {
+            const searchValue = field.trim().toLowerCase()
+            
+            // 精确匹配昵称
+            const exactMatch = userProfiles.find(u => 
+              u.nickname && u.nickname.toLowerCase() === searchValue
+            )
+            if (exactMatch) {
+              authorName = exactMatch.nickname || exactMatch.username || '匿名作者'
+              console.log(`✅ 通过昵称精确匹配到用户: ${authorName}`)
+              break
+            }
+            
+            // 模糊匹配用户名
+            const fuzzyMatch = userProfiles.find(u => 
+              u.username && u.username.toLowerCase().includes(searchValue)
+            )
+            if (fuzzyMatch) {
+              authorName = fuzzyMatch.nickname || fuzzyMatch.username || '匿名作者'
+              console.log(`✅ 通过用户名模糊匹配到用户: ${authorName}`)
+              break
+            }
+          }
+        }
+      }
+      
+      // 策略4：使用文章中的原始作者信息（清洗和格式化）
+      if (authorName === '匿名作者') {
+        const authorFields = [post.username, post.author, post.author_name]
+        for (const field of authorFields) {
+          if (field && typeof field === 'string' && field.trim() && field !== 'undefined' && field !== 'null') {
+            // 清洗作者名字，移除特殊字符和乱码
+            authorName = field.trim()
+              .replace(/[^\w\u4e00-\u9fa5\s]/g, '') // 移除特殊字符，保留中文、字母、数字和空格
+              .replace(/\s+/g, ' ') // 合并多个空格
+              .trim()
+            
+            // 如果清洗后还有内容，使用它
+            if (authorName && authorName.length > 0) {
+              console.log(`🔧 使用原始作者信息: ${authorName}`)
+              break
+            }
+          }
+        }
+      }
+      
+      // 策略5：如果所有匹配都失败，使用默认名称
+      if (authorName === '匿名作者' || !authorName) {
+        authorName = '匿名作者'
+        console.log('⚠️ 无法匹配到作者，使用默认名称')
+      }
+      
+      // 处理点赞量/浏览量数据
+      let likes = 0
+      const likeFields = ['likes', 'like_count', 'favorites', 'favorite_count', 'views']
+      for (const field of likeFields) {
+        if (post[field] !== undefined && post[field] !== null) {
+          likes = parseInt(post[field]) || 0
+          break
+        }
+      }
+      
+      return {
+        id: post.id,
+        title: post.title || '无标题',
+        author: authorName,
+        created_at: post.created_at || new Date().toISOString(),
+        views: likes
+      }
+    })
+    
+    const successMessage = `成功加载 ${posts.value.length} 篇文章，从 ${userProfiles.length} 个用户中匹配作者信息`
+    console.log('🎉', successMessage)
+    ElMessage.success(successMessage)
+    
   } catch (error) {
     console.error('加载文章数据失败:', error)
     ElMessage.error('加载文章数据失败，请检查数据库连接')
+    
+    // 提供降级数据
+    posts.value = [{
+      id: 'error',
+      title: '数据加载失败',
+      author: '请检查连接',
+      created_at: new Date().toISOString(),
+      views: 0
+    }]
   } finally {
     loading.value = false
   }

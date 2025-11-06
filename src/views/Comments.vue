@@ -115,63 +115,45 @@ const loadComments = async () => {
   try {
     loading.value = true
     
-    // 尝试不同的表名
-    const tableNames = ['comments', 'comment']
-    let commentData = []
-    let foundTable = false
+    console.log('🔍 开始连接Supabase数据库获取评论数据...')
     
-    for (const tableName of tableNames) {
+    // 直接连接真实的Supabase数据库，使用 comments 表
+    const { data, error } = await supabase
+      .from('comments')
+      .select('*')
+      .order('created_at', { ascending: false })
+    
+    if (error) {
+      console.error('❌ 获取评论数据失败:', error)
+      ElMessage.error(`获取评论数据失败: ${error.message}`)
+      
+      // 如果失败，尝试检查表是否存在
       try {
-        // 尝试关联查询
-        const { data, error } = await supabase
-          .from(tableName)
-          .select(`
-            *,
-            profiles:author_id (username, email),
-            posts:post_id (title)
-          `)
-          .order('created_at', { ascending: false })
+        const { data: testData, error: testError } = await supabase
+          .from('comments')
+          .select('id')
+          .limit(1)
         
-        if (!error && data) {
-          commentData = data
-          foundTable = true
-          console.log(`✅ 从表 ${tableName} 成功加载评论数据（关联查询）`)
-          break
+        if (testError) {
+          ElMessage.warning('评论表可能不存在，请检查数据库表结构')
         }
-      } catch (err) {
-        // 如果关联查询失败，尝试简单查询
-        try {
-          const { data, error } = await supabase
-            .from(tableName)
-            .select('*')
-            .order('created_at', { ascending: false })
-          
-          if (!error && data) {
-            commentData = data
-            foundTable = true
-            console.log(`✅ 从表 ${tableName} 成功加载评论数据（简单查询）`)
-            break
-          }
-        } catch (simpleErr) {
-          console.log(`❌ 表 ${tableName} 查询失败:`, simpleErr)
-        }
+      } catch (testErr) {
+        console.error('测试连接失败:', testErr)
       }
-    }
-    
-    if (!foundTable) {
-      ElMessage.warning('未找到评论数据表，请检查数据库表结构')
-      comments.value = []
+      
       return
     }
     
+    console.log('✅ 成功获取评论数据:', data)
+    
     // 转换数据格式
-    comments.value = commentData.map(comment => ({
+    comments.value = data.map(comment => ({
       id: comment.id,
       content: comment.content || '无内容',
-      author: comment.author || comment.profiles?.username || comment.profiles?.email?.split('@')[0] || '匿名用户',
-      post_title: comment.post_title || comment.posts?.title || '未知文章',
+      author: comment.author_name || '匿名用户',
+      post_title: '关联文章', // 由于没有直接关联文章标题，显示通用文本
       created_at: comment.created_at || new Date().toISOString(),
-      status: comment.status || 'pending'
+      status: 'approved' // 评论默认都是已审核状态
     }))
     
     ElMessage.success(`成功加载 ${comments.value.length} 条评论`)
