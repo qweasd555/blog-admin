@@ -156,39 +156,22 @@ const loadPosts = async () => {
   try {
     loading.value = true
     
-    console.log('🔍 开始连接Supabase数据库获取文章数据...')
+    console.log('🔍 开始加载文章数据...')
     
-    // 首先尝试从多个可能的用户表获取用户数据
-    let userProfiles = []
-    const userTables = ['user_profiles', 'profiles', 'users']
+    // 先获取所有用户数据
+    const { data: users, error: usersError } = await supabase
+      .from('user_profiles')
+      .select('id, username, nickname, email')
     
-    for (const table of userTables) {
-      try {
-        console.log(`🔄 尝试从 ${table} 表获取用户数据...`)
-        const { data: userData, error: userError } = await supabase
-          .from(table)
-          .select('*')
-          .limit(100)
-        
-        if (!userError && userData && userData.length > 0) {
-          console.log(`✅ 成功从 ${table} 表获取用户数据:`, userData.length)
-          userProfiles = userData
-          break
-        }
-      } catch (tableError) {
-        console.log(`❌ ${table} 表查询失败:`, tableError.message)
-      }
+    if (usersError) {
+      console.error('获取用户数据失败:', usersError)
+      ElMessage.error('获取用户数据失败')
+      return
     }
     
-    // 如果用户表都为空，创建一个默认用户
-    if (userProfiles.length === 0) {
-      console.log('📝 创建默认用户数据作为备用')
-      userProfiles = [{
-        id: 'default-admin',
-        username: 'admin',
-        nickname: '管理员',
-        email: 'admin@example.com'
-      }]
+    console.log('✅ 成功获取用户数据:', users?.length || 0)
+    if (users && users.length > 0) {
+      console.log('📋 用户数据:', users)
     }
     
     // 获取文章数据
@@ -205,91 +188,28 @@ const loadPosts = async () => {
     
     console.log('✅ 成功获取文章数据:', data?.length || 0)
     
-    // 转换数据格式，智能匹配用户信息
+    if (data && data.length > 0) {
+      console.log('📋 文章原始数据:', data.map(p => ({
+        id: p.id,
+        title: p.title,
+        user_id: p.user_id,
+        author: p.author
+      })))
+    }
+    
+    // 通过user_id匹配用户
     posts.value = data.map(post => {
-      // 智能匹配作者信息
       let authorName = '匿名作者'
       
-      // 策略1：优先通过user_id精确匹配
-      if (post.user_id) {
-        const matchedUser = userProfiles.find(u => u.id === post.user_id)
+      // 通过user_id直接匹配
+      if (post.user_id && users) {
+        const matchedUser = users.find(u => u.id === post.user_id)
         if (matchedUser) {
-          authorName = matchedUser.nickname || matchedUser.username || '匿名作者'
-          console.log(`✅ 通过user_id匹配到用户: ${authorName}`)
+          authorName = matchedUser.nickname || matchedUser.username || '用户'
+          console.log(`✅ 文章 ${post.id} 匹配到用户: ${matchedUser.id} -> ${authorName}`)
+        } else {
+          console.log(`⚠️ 文章 ${post.id} 的用户ID ${post.user_id} 在用户表中不存在`)
         }
-      }
-      
-      // 策略2：通过邮箱模糊匹配
-      if (authorName === '匿名作者' && post.author && typeof post.author === 'string') {
-        const authorEmail = post.author.toLowerCase()
-        const matchedUser = userProfiles.find(u => u.email && u.email.toLowerCase().includes(authorEmail))
-        if (matchedUser) {
-          authorName = matchedUser.nickname || matchedUser.username || '匿名作者'
-          console.log(`✅ 通过邮箱匹配到用户: ${authorName}`)
-        }
-      }
-      
-      // 策略3：通过昵称模糊匹配
-      if (authorName === '匿名作者') {
-        const authorFields = [
-          post.username, 
-          post.author, 
-          post.author_name, 
-          post.author_nickname,
-          post.author_username
-        ]
-        
-        for (const field of authorFields) {
-          if (field && typeof field === 'string' && field.trim() && field !== 'undefined' && field !== 'null') {
-            const searchValue = field.trim().toLowerCase()
-            
-            // 精确匹配昵称
-            const exactMatch = userProfiles.find(u => 
-              u.nickname && u.nickname.toLowerCase() === searchValue
-            )
-            if (exactMatch) {
-              authorName = exactMatch.nickname || exactMatch.username || '匿名作者'
-              console.log(`✅ 通过昵称精确匹配到用户: ${authorName}`)
-              break
-            }
-            
-            // 模糊匹配用户名
-            const fuzzyMatch = userProfiles.find(u => 
-              u.username && u.username.toLowerCase().includes(searchValue)
-            )
-            if (fuzzyMatch) {
-              authorName = fuzzyMatch.nickname || fuzzyMatch.username || '匿名作者'
-              console.log(`✅ 通过用户名模糊匹配到用户: ${authorName}`)
-              break
-            }
-          }
-        }
-      }
-      
-      // 策略4：使用文章中的原始作者信息（清洗和格式化）
-      if (authorName === '匿名作者') {
-        const authorFields = [post.username, post.author, post.author_name]
-        for (const field of authorFields) {
-          if (field && typeof field === 'string' && field.trim() && field !== 'undefined' && field !== 'null') {
-            // 清洗作者名字，移除特殊字符和乱码
-            authorName = field.trim()
-              .replace(/[^\w\u4e00-\u9fa5\s]/g, '') // 移除特殊字符，保留中文、字母、数字和空格
-              .replace(/\s+/g, ' ') // 合并多个空格
-              .trim()
-            
-            // 如果清洗后还有内容，使用它
-            if (authorName && authorName.length > 0) {
-              console.log(`🔧 使用原始作者信息: ${authorName}`)
-              break
-            }
-          }
-        }
-      }
-      
-      // 策略5：如果所有匹配都失败，使用默认名称
-      if (authorName === '匿名作者' || !authorName) {
-        authorName = '匿名作者'
-        console.log('⚠️ 无法匹配到作者，使用默认名称')
       }
       
       // 处理点赞量/浏览量数据
@@ -311,9 +231,11 @@ const loadPosts = async () => {
       }
     })
     
-    const successMessage = `成功加载 ${posts.value.length} 篇文章，从 ${userProfiles.length} 个用户中匹配作者信息`
-    console.log('🎉', successMessage)
-    ElMessage.success(successMessage)
+    const matchedCount = posts.value.filter(p => p.author !== '匿名作者').length
+    const totalCount = posts.value.length
+    
+    console.log(`🎉 成功加载 ${totalCount} 篇文章，其中 ${matchedCount} 篇匹配到用户`)
+    ElMessage.success(`成功加载 ${totalCount} 篇文章`)
     
   } catch (error) {
     console.error('加载文章数据失败:', error)
