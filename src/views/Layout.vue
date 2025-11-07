@@ -66,6 +66,14 @@
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { 
+  User, 
+  ArrowDown, 
+  SwitchButton, 
+  Odometer, 
+  Document, 
+  ChatDotRound 
+} from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()

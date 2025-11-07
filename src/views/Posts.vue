@@ -78,7 +78,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
-import { supabase } from '@/lib/supabase'
+import { supabase, supabaseAdmin } from '@/lib/supabase'
 
 const router = useRouter()
 const loading = ref(false)
@@ -157,68 +157,188 @@ const loadPosts = async () => {
     loading.value = true
     
     console.log('🔍 开始加载文章数据...')
+    console.log('Supabase配置:', {
+      url: import.meta.env.VITE_SUPABASE_URL,
+      keyLength: import.meta.env.VITE_SUPABASE_ANON_KEY?.length
+    })
     
-    // 先获取所有用户数据
-    const { data: users, error: usersError } = await supabase
-      .from('user_profiles')
-      .select('id, username, nickname, email')
-    
-    if (usersError) {
-      console.error('获取用户数据失败:', usersError)
-      ElMessage.error('获取用户数据失败')
-      return
-    }
-    
-    console.log('✅ 成功获取用户数据:', users?.length || 0)
-    if (users && users.length > 0) {
-      console.log('📋 用户数据:', users)
-    }
-    
-    // 获取文章数据
-    const { data, error } = await supabase
+    // 第一步：获取文章数据
+    console.log('📝 获取文章数据...')
+    const { data: postsData, error: postsError } = await supabase
       .from('posts')
       .select('*')
       .order('created_at', { ascending: false })
     
-    if (error) {
-      console.error('❌ 获取文章数据失败:', error)
-      ElMessage.error(`获取文章数据失败: ${error.message}`)
+    if (postsError) {
+      console.error('❌ 获取文章数据失败:', postsError)
+      ElMessage.error(`获取文章数据失败: ${postsError.message}`)
+      
+      // 提供示例数据用于调试
+      posts.value = [
+        {
+          id: 'demo-1',
+          title: '示例文章1',
+          author: '演示用户',
+          created_at: new Date().toISOString(),
+          views: 10
+        },
+        {
+          id: 'demo-2', 
+          title: '示例文章2',
+          author: '测试用户',
+          created_at: new Date().toISOString(),
+          views: 5
+        }
+      ]
+      loading.value = false
       return
     }
     
-    console.log('✅ 成功获取文章数据:', data?.length || 0)
+    console.log('✅ 成功获取文章数据:', postsData?.length || 0)
     
-    if (data && data.length > 0) {
-      console.log('📋 文章原始数据:', data.map(p => ({
-        id: p.id,
-        title: p.title,
-        user_id: p.user_id,
-        author: p.author
-      })))
+    if (!postsData || postsData.length === 0) {
+      console.log('⚠️ 没有找到文章数据，posts表可能为空')
+      ElMessage.info('暂无文章数据')
+      posts.value = []
+      loading.value = false
+      return
     }
     
-    // 通过user_id匹配用户
-    posts.value = data.map(post => {
-      let authorName = '匿名作者'
+    // 第二步：获取用户数据 - 简化逻辑，只查询关键表
+    console.log('👥 开始获取用户数据...')
+    let users = []
+    
+    // 尝试查询profiles表（这是Supabase推荐的用户信息表）
+    try {
+      console.log('🔍 查询profiles表...')
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, username, full_name, email, created_at')
+        .order('created_at', { ascending: false })
       
-      // 通过user_id直接匹配
-      if (post.user_id && users) {
+      if (!profilesError && profilesData && profilesData.length > 0) {
+        console.log('✅ 从profiles表获取用户数据:', profilesData.length)
+        users = profilesData.map(profile => ({
+          id: profile.id,
+          username: profile.username || '用户',
+          nickname: profile.full_name || profile.username || '用户',
+          email: profile.email || '无邮箱',
+          created_at: profile.created_at
+        }))
+      }
+    } catch (error) {
+      console.log('❌ profiles表查询失败:', error.message)
+    }
+    
+    // 如果profiles表没有数据，尝试查询user_profiles表
+    if (users.length === 0) {
+      try {
+        console.log('🔍 查询user_profiles表...')
+        const { data: userProfilesData, error: userProfilesError } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(100)
+        
+        if (!userProfilesError && userProfilesData && userProfilesData.length > 0) {
+          console.log('✅ 从user_profiles表获取用户数据:', userProfilesData.length)
+          users = userProfilesData.map(user => ({
+            id: user.id || user.user_id,
+            username: user.username || user.nickname || '用户',
+            nickname: user.nickname || user.username || '用户',
+            email: user.email || '无邮箱',
+            created_at: user.created_at
+          }))
+        }
+      } catch (error) {
+        console.log('❌ user_profiles表查询失败:', error.message)
+      }
+    }
+    
+    // 如果还没有用户数据，尝试使用Service Role Key查询auth.users表
+    if (users.length === 0) {
+      try {
+        console.log('🔍 使用Service Role Key查询auth.users表...')
+        const { data: authUsers, error: authError } = await supabaseAdmin
+          .from('auth.users')
+          .select('id, email, raw_user_meta_data, created_at')
+          .order('created_at', { ascending: false })
+          .limit(50)
+        
+        if (!authError && authUsers && authUsers.length > 0) {
+          console.log('✅ 从auth.users表获取用户数据:', authUsers.length)
+          users = authUsers.map(user => {
+            const metaData = user.raw_user_meta_data || {}
+            const username = metaData.username || user.email?.split('@')[0] || '用户'
+            const nickname = metaData.name || metaData.nickname || username
+            
+            return {
+              id: user.id,
+              username: username,
+              nickname: nickname,
+              email: user.email,
+              created_at: user.created_at
+            }
+          })
+        }
+      } catch (error) {
+        console.log('❌ auth.users表查询失败:', error.message)
+      }
+    }
+    
+    console.log('📊 最终获取到用户数据:', users.length)
+    if (users.length > 0) {
+      console.log('📋 用户列表:', users.map(u => ({ id: u.id, name: u.nickname })))
+    }
+    
+    // 第三步：处理文章数据，匹配作者
+    console.log('🔗 开始用户-文章匹配...')
+    posts.value = postsData.map(post => {
+      let authorName = post.author || '匿名作者'
+      let matchedUserId = null
+      
+      // 简单匹配逻辑：检查user_id字段
+      if (post.user_id && users.length > 0) {
         const matchedUser = users.find(u => u.id === post.user_id)
         if (matchedUser) {
           authorName = matchedUser.nickname || matchedUser.username || '用户'
-          console.log(`✅ 文章 ${post.id} 匹配到用户: ${matchedUser.id} -> ${authorName}`)
-        } else {
-          console.log(`⚠️ 文章 ${post.id} 的用户ID ${post.user_id} 在用户表中不存在`)
+          matchedUserId = matchedUser.id
+          console.log(`✅ 文章 ${post.id} 匹配到用户: ${authorName} (ID: ${matchedUserId})`)
         }
       }
       
-      // 处理点赞量/浏览量数据
-      let likes = 0
-      const likeFields = ['likes', 'like_count', 'favorites', 'favorite_count', 'views']
-      for (const field of likeFields) {
+      // 如果user_id不匹配，尝试从author字段匹配
+      if (!matchedUserId && post.author && users.length > 0) {
+        // 如果author是UUID格式，尝试匹配ID
+        if (post.author.match(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i)) {
+          const matchedUser = users.find(u => u.id === post.author)
+          if (matchedUser) {
+            authorName = matchedUser.nickname || matchedUser.username || '用户'
+            matchedUserId = matchedUser.id
+            console.log(`✅ 文章 ${post.id} 通过author UUID匹配到用户: ${authorName}`)
+          }
+        } else {
+          // 如果author是用户名，直接使用
+          const matchedUser = users.find(u => 
+            u.username === post.author || 
+            u.nickname === post.author || 
+            u.email === post.author
+          )
+          if (matchedUser) {
+            authorName = matchedUser.nickname || matchedUser.username || post.author
+            matchedUserId = matchedUser.id
+            console.log(`✅ 文章 ${post.id} 通过作者名匹配到用户: ${authorName}`)
+          }
+        }
+      }
+      
+      // 计算浏览量/点赞量
+      let views = 0
+      const viewFields = ['views', 'view_count', 'likes', 'like_count']
+      for (const field of viewFields) {
         if (post[field] !== undefined && post[field] !== null) {
-          likes = parseInt(post[field]) || 0
-          break
+          views = parseInt(post[field]) || 0
+          if (views > 0) break
         }
       }
       
@@ -227,28 +347,16 @@ const loadPosts = async () => {
         title: post.title || '无标题',
         author: authorName,
         created_at: post.created_at || new Date().toISOString(),
-        views: likes
+        views: views
       }
     })
     
-    const matchedCount = posts.value.filter(p => p.author !== '匿名作者').length
-    const totalCount = posts.value.length
-    
-    console.log(`🎉 成功加载 ${totalCount} 篇文章，其中 ${matchedCount} 篇匹配到用户`)
-    ElMessage.success(`成功加载 ${totalCount} 篇文章`)
+    console.log(`🎉 成功加载 ${posts.value.length} 篇文章`)
+    ElMessage.success(`成功加载 ${posts.value.length} 篇文章`)
     
   } catch (error) {
     console.error('加载文章数据失败:', error)
-    ElMessage.error('加载文章数据失败，请检查数据库连接')
-    
-    // 提供降级数据
-    posts.value = [{
-      id: 'error',
-      title: '数据加载失败',
-      author: '请检查连接',
-      created_at: new Date().toISOString(),
-      views: 0
-    }]
+    ElMessage.error('加载文章数据失败，请检查浏览器控制台查看详细错误信息')
   } finally {
     loading.value = false
   }

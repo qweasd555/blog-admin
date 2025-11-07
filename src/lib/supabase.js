@@ -14,12 +14,15 @@ if (!supabaseUrl || !supabaseAnonKey) {
   })
 }
 
+// 创建共享的认证配置，避免重复实例
+const authOptions = {
+  persistSession: true,
+  autoRefreshToken: true,
+}
+
 // 创建普通权限的 Supabase 客户端（用于读取操作）
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-  },
+  auth: authOptions,
   global: {
     headers: {
       'Content-Type': 'application/json',
@@ -28,9 +31,10 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 })
 
 // 创建高权限的 Supabase 客户端（用于修改操作，绕过RLS策略）
+// 使用Service Role Key时禁用会话持久化，避免与普通客户端冲突
 export const supabaseAdmin = supabaseServiceRoleKey ? createClient(supabaseUrl, supabaseServiceRoleKey, {
   auth: {
-    persistSession: false,
+    persistSession: false, // 禁用持久化避免冲突
     autoRefreshToken: false,
   },
   global: {
@@ -38,17 +42,7 @@ export const supabaseAdmin = supabaseServiceRoleKey ? createClient(supabaseUrl, 
       'Content-Type': 'application/json',
     },
   },
-}) : createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
-  global: {
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  },
-})
+}) : supabase // 直接使用已有的supabase实例，避免重复创建
 
 // 测试连接
 export const testConnection = async () => {
