@@ -48,7 +48,7 @@
             <span>文章管理</span>
           </el-menu-item>
           <el-menu-item index="Comments">
-            <el-icon><ChatDotRound /></el-icon>
+            <el-icon><ChatLineRound /></el-icon>
             <span>评论管理</span>
           </el-menu-item>
         </el-menu>
@@ -72,7 +72,7 @@ import {
   SwitchButton, 
   Odometer, 
   Document, 
-  ChatDotRound 
+  ChatLineRound 
 } from '@element-plus/icons-vue'
 
 const router = useRouter()

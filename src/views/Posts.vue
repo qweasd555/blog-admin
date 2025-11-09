@@ -102,7 +102,11 @@ const filteredPosts = computed(() => {
     )
   }
   
-  return filtered
+  // 实现分页逻辑
+  const startIndex = (currentPage.value - 1) * pageSize.value
+  const endIndex = startIndex + pageSize.value
+  
+  return filtered.slice(startIndex, endIndex)
 })
 
 const formatDate = (dateString) => {
@@ -171,23 +175,44 @@ const loadPosts = async () => {
     
     if (postsError) {
       console.error('❌ 获取文章数据失败:', postsError)
-      ElMessage.error(`获取文章数据失败: ${postsError.message}`)
+      ElMessage.warning('数据库连接失败，正在使用示例数据...')
       
-      // 提供示例数据用于调试
+      // 提供更丰富的示例数据用于显示
       posts.value = [
         {
           id: 'demo-1',
-          title: '示例文章1',
-          author: '演示用户',
+          title: '欢迎使用博客管理系统',
+          author: '管理员',
           created_at: new Date().toISOString(),
-          views: 10
+          views: 100
         },
         {
           id: 'demo-2', 
-          title: '示例文章2',
+          title: '数据库连接问题解决方案',
+          author: '技术支持',
+          created_at: new Date(Date.now() - 86400000).toISOString(),
+          views: 50
+        },
+        {
+          id: 'demo-3',
+          title: '如何配置Supabase连接',
+          author: '开发团队',
+          created_at: new Date(Date.now() - 172800000).toISOString(),
+          views: 30
+        },
+        {
+          id: 'demo-4',
+          title: '示例文章4',
+          author: '演示用户',
+          created_at: new Date(Date.now() - 259200000).toISOString(),
+          views: 20
+        },
+        {
+          id: 'demo-5',
+          title: '示例文章5',
           author: '测试用户',
-          created_at: new Date().toISOString(),
-          views: 5
+          created_at: new Date(Date.now() - 345600000).toISOString(),
+          views: 15
         }
       ]
       loading.value = false

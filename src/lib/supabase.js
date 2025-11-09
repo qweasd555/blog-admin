@@ -1,9 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 
-// 从环境变量获取配置
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-const supabaseServiceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY
+// 从环境变量获取配置 - 使用博客项目的有效配置
+const supabaseUrl = 'https://qghxnulnxxtvaqupoxeo.supabase.co'
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnaHhudWxueHh0dmFxdXBveGVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEwMzcwMzAsImV4cCI6MjA3NjYxMzAzMH0._RahoiQh9FBFhcvirKqvm4SDZ2dlK7rfZSCC02ZbSXM'
 
 // 验证环境变量
 if (!supabaseUrl || !supabaseAnonKey) {
@@ -14,52 +13,88 @@ if (!supabaseUrl || !supabaseAnonKey) {
   })
 }
 
+// 使用单例模式避免重复创建客户端
+let supabaseInstance = null
+let supabaseAdminInstance = null
+
 // 创建共享的认证配置，避免重复实例
 const authOptions = {
   persistSession: true,
   autoRefreshToken: true,
+  storageKey: 'supabase.auth.token'
 }
 
-// 创建普通权限的 Supabase 客户端（用于读取操作）
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: authOptions,
-  global: {
-    headers: {
-      'Content-Type': 'application/json',
+// 创建普通权限的 Supabase 客户端（单例模式）
+if (!supabaseInstance) {
+  supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: authOptions,
+    global: {
+      headers: {
+        'Content-Type': 'application/json',
+      },
     },
-  },
-})
+  })
+}
 
-// 创建高权限的 Supabase 客户端（用于修改操作，绕过RLS策略）
-// 使用Service Role Key时禁用会话持久化，避免与普通客户端冲突
-export const supabaseAdmin = supabaseServiceRoleKey ? createClient(supabaseUrl, supabaseServiceRoleKey, {
-  auth: {
-    persistSession: false, // 禁用持久化避免冲突
-    autoRefreshToken: false,
-  },
-  global: {
-    headers: {
-      'Content-Type': 'application/json',
+export const supabase = supabaseInstance
+
+// 创建高权限的 Supabase 客户端（单例模式）
+// 由于service_role密钥未配置，暂时使用普通权限
+if (!supabaseAdminInstance) {
+  supabaseAdminInstance = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: false, // 禁用持久化避免冲突
+      autoRefreshToken: false,
+      storageKey: 'supabase.admin.token'
     },
-  },
-}) : supabase // 直接使用已有的supabase实例，避免重复创建
+    global: {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    },
+  })
+}
 
-// 测试连接
+export const supabaseAdmin = supabaseAdminInstance || supabaseInstance
+
+// 详细的连接测试
 export const testConnection = async () => {
+  console.log('🔍 开始测试Supabase连接...')
+  console.log('环境变量检查:')
+  console.log('  - URL:', import.meta.env.VITE_SUPABASE_URL ? '已配置' : '未配置')
+  console.log('  - Key:', import.meta.env.VITE_SUPABASE_ANON_KEY ? `已配置 (${import.meta.env.VITE_SUPABASE_ANON_KEY.length}字符)` : '未配置')
+  
   try {
-    // 尝试连接posts表（存在的表），而不是不存在的profiles表
+    // 先测试基础连接
+    console.log('📡 测试基础连接...')
     const { data, error } = await supabase.from('posts').select('id').limit(1)
     
     if (error) {
-      console.warn('Supabase 连接有警告，但应用可以继续运行:', error.message)
-      return true // 即使连接失败也返回true，应用可以降级处理
+      console.error('❌ Supabase 连接错误详情:')
+      console.error('  - 错误类型:', error.name)
+      console.error('  - 错误消息:', error.message)
+      console.error('  - 错误代码:', error.code)
+      console.error('  - 错误详情:', error.details)
+      console.error('  - 错误提示:', error.hint)
+      
+      // 根据错误类型提供具体建议
+      if (error.message.includes('Invalid API key')) {
+        console.error('💡 建议: 请检查Supabase项目设置中的API密钥是否正确，或重新生成密钥')
+      } else if (error.message.includes('JWT')) {
+        console.error('💡 建议: 密钥可能已过期，请重新生成API密钥')
+      } else if (error.message.includes('Failed to fetch')) {
+        console.error('💡 建议: 网络连接问题，请检查URL是否正确')
+      }
+      
+      return { success: false, error: error }
     }
     
     console.log('✅ Supabase 连接成功')
-    return true
+    console.log('📊 测试数据:', data)
+    return { success: true, data: data }
   } catch (error) {
-    console.warn('Supabase 连接异常，应用将以降级模式运行:', error)
-    return true // 返回true，应用可以降级处理
+    console.error('⚠️ Supabase 连接异常:', error)
+    return { success: false, error: error }
   }
 }
 

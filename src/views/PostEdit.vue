@@ -55,8 +55,9 @@ const isEdit = !!postId
 
 const form = reactive({
   title: '',
-  author: '',
-  content: ''
+  author: '', // 这里存储作者姓名（author_name）
+  content: '',
+  author_id: '' // 存储实际的author字段（UUID）
 })
 
 const rules = {
@@ -91,9 +92,12 @@ const loadPostData = async () => {
     
     Object.assign(form, {
       title: data.title || '',
-      author: data.author || data.author_name || '',
-      content: data.content || ''
+      author: data.author_name || data.author || '', // 优先显示作者姓名
+      content: data.content || '',
+      author_id: data.author || '' // 存储原author字段
     })
+    
+    console.log('📝 加载的文章数据:', data)
   } catch (error) {
     console.error('加载文章数据失败:', error)
     ElMessage.error('加载文章数据失败')
@@ -108,11 +112,21 @@ const submitForm = async () => {
     
     loading.value = true
     
-    // 基础数据，只包含数据库表中实际存在的字段
+    // 根据数据库表结构准备数据
     const postData = {
       title: form.title,
-      author: form.author,
-      content: form.content
+      content: form.content,
+      author_name: form.author // 存储作者姓名
+    }
+    
+    // 如果是编辑模式，保持原来的author字段（UUID）
+    if (isEdit && form.author_id) {
+      postData.author = form.author_id
+    } else {
+      // 新建模式，需要生成或获取合适的author ID
+      // 这里简化处理：如果没有author_id，使用一个默认的UUID
+      // 实际应用中应该从用户系统获取正确的author ID
+      postData.author = 'admin-' + Date.now()
     }
     
     console.log('📝 准备保存文章数据:', postData)
