@@ -173,7 +173,15 @@ const loadPosts = async () => {
     
     if (postsError) {
       console.error('❌ 获取文章数据失败:', postsError)
-      ElMessage.warning('数据库连接失败，正在使用示例数据...')
+      
+      // 根据错误类型提供更具体的提示
+      if (postsError.message && postsError.message.includes('Failed to fetch')) {
+        ElMessage.error('网络连接失败，请检查网络连接或Supabase项目状态')
+      } else if (postsError.message && postsError.message.includes('Invalid API key')) {
+        ElMessage.error('API密钥无效，请检查Supabase配置')
+      } else {
+        ElMessage.warning('数据库连接失败，正在使用示例数据...')
+      }
       
       // 提供更丰富的示例数据用于显示
       posts.value = [

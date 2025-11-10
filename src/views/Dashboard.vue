@@ -103,6 +103,8 @@
 import { ref, onMounted } from 'vue'
 import { supabase, supabaseAdmin } from '@/lib/supabase'
 import { ElMessage } from 'element-plus'
+import { User, Document, ChatLineRound, Date } from '@element-plus/icons-vue'
+import { User, Document, ChatLineRound, Date } from '@element-plus/icons-vue'
 
 const stats = ref({
   totalUsers: 0,
