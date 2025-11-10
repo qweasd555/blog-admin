@@ -20,7 +20,7 @@
         </el-input>
         
         <div class="action-buttons">
-          <el-button type="primary" @click="handleRefresh">
+          <el-button type="primary" @click="loadComments">
             <el-icon><Refresh /></el-icon>
             刷新
           </el-button>
@@ -117,9 +117,9 @@ const loadComments = async () => {
     
     console.log('🔍 开始连接Supabase数据库获取评论数据...')
     
-    // 直接连接真实的Supabase数据库，使用 comments 表
+    // 直接连接真实的Supabase数据库，使用 post_comments 表
     const { data, error } = await supabase
-      .from('comments')
+      .from('post_comments')
       .select('*')
       .order('created_at', { ascending: false })
     
@@ -130,7 +130,7 @@ const loadComments = async () => {
       // 如果失败，尝试检查表是否存在
       try {
         const { data: testData, error: testError } = await supabase
-          .from('comments')
+          .from('post_comments')
           .select('id')
           .limit(1)
         
@@ -179,7 +179,7 @@ const toggleCommentStatus = async (comment) => {
     
     // 更新数据库中的评论状态
     const { error } = await supabase
-      .from('comments')
+      .from('post_comments')
       .update({ status: comment.status === 'approved' ? 'rejected' : 'approved' })
       .eq('id', comment.id)
     
@@ -209,7 +209,7 @@ const deleteComment = async (comment) => {
     
     // 从数据库删除评论
     const { error } = await supabase
-      .from('comments')
+      .from('post_comments')
       .delete()
       .eq('id', comment.id)
     
