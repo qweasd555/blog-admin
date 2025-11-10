@@ -189,7 +189,11 @@ const submitForm = async () => {
 }
 
 const goBack = () => {
-  router.push('/posts')
+  // 返回到文章列表，保留来源页传入的筛选上下文（如 search/highlight/from）
+  router.push({
+    path: '/posts',
+    query: { ...route.query }
+  })
 }
 
 onMounted(() => {

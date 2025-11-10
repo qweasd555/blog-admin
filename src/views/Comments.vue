@@ -38,7 +38,7 @@
           <template #default="{ row }">
             <el-link 
               type="primary" 
-              :underline="false" 
+              underline="hover" 
               @click="viewPost(row.post_id)"
               style="cursor: pointer"
             >
@@ -122,37 +122,52 @@ const loadComments = async () => {
     console.log('🔑 使用高级权限加载评论数据...')
     const { supabaseAdmin } = await import('@/lib/supabase')
     
+    // 尝试不同的表名来获取评论数据（优先尝试更可能存在的表名）
+    const tableNames = ['post_comments', 'comments', 'post_comment', 'article_comments']
     let commentsData = []
-    let hasError = false
+    let foundTable = false
     
-    // 先尝试使用管理员权限查询
-    const { data: adminData, error: adminError } = await supabaseAdmin
-      .from('post_comments')
-      .select('*')
-      .order('created_at', { ascending: false })
-    
-    if (adminError) {
-      console.error('❌ 高级权限获取评论数据失败:', adminError)
-      
-      // 如果高级权限失败，尝试普通权限
-      console.log('🔄 尝试使用普通权限获取数据...')
-      const { data: normalData, error: normalError } = await supabase
-        .from('post_comments')
-        .select('*')
-        .order('created_at', { ascending: false })
-      
-      if (normalError) {
-        console.error('❌ 普通权限获取也失败:', normalError)
-        ElMessage.error(`获取评论数据失败: ${normalError.message}`)
-        loading.value = false
-        return
+    for (const tableName of tableNames) {
+      try {
+        console.log(`🔍 尝试从表 ${tableName} 获取评论数据...`)
+        
+        // 先尝试使用管理员权限
+        const { data: adminData, error: adminError } = await supabaseAdmin
+          .from(tableName)
+          .select('*')
+          .order('created_at', { ascending: false })
+        
+        if (!adminError && adminData) {
+          commentsData = adminData
+          console.log(`✅ 使用高级权限从 ${tableName} 表成功获取评论数据:`, commentsData.length)
+          foundTable = true
+          break
+        }
+        
+        // 如果高级权限失败，尝试普通权限
+        console.log(`🔄 尝试使用普通权限从 ${tableName} 表获取数据...`)
+        const { data: normalData, error: normalError } = await supabase
+          .from(tableName)
+          .select('*')
+          .order('created_at', { ascending: false })
+        
+        if (!normalError && normalData) {
+          commentsData = normalData
+          console.log(`✅ 使用普通权限从 ${tableName} 表成功获取评论数据:`, commentsData.length)
+          foundTable = true
+          break
+        }
+        
+      } catch (error) {
+        console.log(`⚠️ 表 ${tableName} 获取失败:`, error.message)
       }
-      
-      commentsData = normalData
-      console.log('✅ 使用普通权限成功获取评论数据:', commentsData)
-    } else {
-      commentsData = adminData
-      console.log('✅ 使用高级权限成功获取评论数据:', commentsData)
+    }
+    
+    if (!foundTable) {
+      console.error('❌ 所有表都无法获取评论数据')
+      ElMessage.error('获取评论数据失败，请检查数据库表结构')
+      loading.value = false
+      return
     }
     
     // 获取所有文章ID

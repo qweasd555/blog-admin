@@ -120,7 +120,11 @@ const viewPost = (post) => {
 }
 
 const editPost = (post) => {
-  router.push(`/posts/edit/${post.id}`)
+  // 保留当前过滤上下文（search/from/highlight 等）传递到编辑页
+  router.push({
+    path: `/posts/edit/${post.id}`,
+    query: { ...route.query, from: route.query.from || 'posts' }
+  })
 }
 
 const deletePost = async (post) => {
@@ -245,30 +249,29 @@ const loadPosts = async () => {
     let likeCounts = {}
     try {
       console.log('👍 获取点赞数据...')
-      // 尝试从post_like表获取点赞数据
-      const { data: postLikes, error: likesError } = await supabase
-        .from('post_like')
+      // 优先尝试 post_likes，减少 404
+      const { data: postLikes2, error: likesError2 } = await supabase
+        .from('post_likes')
         .select('post_id')
       
-      if (!likesError && postLikes) {
-        // 按文章ID统计点赞数
-        postLikes.forEach(like => {
+      if (!likesError2 && postLikes2) {
+        postLikes2.forEach(like => {
           likeCounts[like.post_id] = (likeCounts[like.post_id] || 0) + 1
         })
-        console.log('✅ 从post_like表获取点赞数据')
+        console.log('✅ 从post_likes表获取点赞数据')
       }
       
-      // 如果post_like表不存在，尝试从post_likes表获取
+      // 如果 post_likes 不存在，尝试 post_like
       if (Object.keys(likeCounts).length === 0) {
-        const { data: postLikes2, error: likesError2 } = await supabase
-          .from('post_likes')
+        const { data: postLikes, error: likesError } = await supabase
+          .from('post_like')
           .select('post_id')
         
-        if (!likesError2 && postLikes2) {
-          postLikes2.forEach(like => {
+        if (!likesError && postLikes) {
+          postLikes.forEach(like => {
             likeCounts[like.post_id] = (likeCounts[like.post_id] || 0) + 1
           })
-          console.log('✅ 从post_likes表获取点赞数据')
+          console.log('✅ 从post_like表获取点赞数据')
         }
       }
     } catch (error) {
@@ -279,30 +282,27 @@ const loadPosts = async () => {
     let commentCounts = {}
     try {
       console.log('💬 获取评论数据...')
-      // 尝试从post_comment表获取评论数据
-      const { data: postComments, error: commentsError } = await supabase
-        .from('post_comment')
-        .select('post_id')
       
-      if (!commentsError && postComments) {
-        // 按文章ID统计评论数
-        postComments.forEach(comment => {
-          commentCounts[comment.post_id] = (commentCounts[comment.post_id] || 0) + 1
-        })
-        console.log('✅ 从post_comment表获取评论数据')
-      }
+      // 尝试不同的表名来获取评论数据（优先 post_comments，减少 404）
+      const tableNames = ['post_comments', 'comments', 'post_comment', 'article_comments']
       
-      // 如果post_comment表不存在，尝试从post_comments表获取
-      if (Object.keys(commentCounts).length === 0) {
-        const { data: postComments2, error: commentsError2 } = await supabase
-          .from('post_comments')
-          .select('post_id')
-        
-        if (!commentsError2 && postComments2) {
-          postComments2.forEach(comment => {
-            commentCounts[comment.post_id] = (commentCounts[comment.post_id] || 0) + 1
-          })
-          console.log('✅ 从post_comments表获取评论数据')
+      for (const tableName of tableNames) {
+        try {
+          console.log(`🔄 尝试表名: ${tableName}`)
+          const { data: postComments, error: commentsError } = await supabase
+            .from(tableName)
+            .select('post_id')
+          
+          if (!commentsError && postComments) {
+            // 按文章ID统计评论数
+            postComments.forEach(comment => {
+              commentCounts[comment.post_id] = (commentCounts[comment.post_id] || 0) + 1
+            })
+            console.log(`✅ 从 ${tableName} 表获取评论数据`)
+            break // 找到有效表后退出循环
+          }
+        } catch (error) {
+          console.log(`⚠️ 表 ${tableName} 获取失败:`, error.message)
         }
       }
     } catch (error) {
@@ -355,6 +355,16 @@ const handleRouteParams = () => {
     // 如果是来自评论页面的跳转，显示提示信息
     if (fromParam === 'comments') {
       ElMessage.success(`已自动搜索到评论关联的文章`)
+      
+      // 特殊处理：如果搜索词是文章ID，直接设置当前页为只显示该文章
+      if (highlightParam && highlightParam === searchParam) {
+        // 找到对应的文章并高亮显示
+        const targetPost = posts.value.find(post => post.id === highlightParam)
+        if (targetPost) {
+          console.log('🎯 定位到特定文章:', targetPost.title)
+          // 这里可以添加滚动到特定文章的逻辑
+        }
+      }
     }
   }
   

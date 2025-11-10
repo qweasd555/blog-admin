@@ -3,6 +3,10 @@
     <div class="dashboard-header">
       <h2>仪表盘</h2>
       <p>系统概览和统计数据</p>
+      <div class="status-indicator" :class="{ online: systemStatus.supabase, offline: !systemStatus.supabase }">
+        {{ systemStatus.supabase ? '✅ 在线' : '❌ 离线' }}
+        <span v-if="systemStatus.lastSync"> - 最后同步: {{ formatTime(systemStatus.lastSync) }}</span>
+      </div>
     </div>
 
     <!-- 统计卡片 -->
@@ -46,7 +50,7 @@
       <el-card class="stat-card">
         <div class="stat-content">
           <div class="stat-icon today-icon">
-            <el-icon><Date /></el-icon>
+            <el-icon><Calendar /></el-icon>
           </div>
           <div class="stat-info">
             <div class="stat-value">{{ stats.todayUsers }}</div>
@@ -76,6 +80,10 @@
           <el-icon><ChatLineRound /></el-icon>
           评论管理
         </el-button>
+        <el-button type="info" @click="refreshData">
+          <el-icon><Refresh /></el-icon>
+          刷新数据
+        </el-button>
       </div>
     </el-card>
 
@@ -84,6 +92,9 @@
       <template #header>
         <div class="card-header">
           <span>最近活动</span>
+          <el-tooltip content="数据来源: Supabase数据库 / 本地缓存 / 示例数据">
+            <el-icon><InfoFilled /></el-icon>
+          </el-tooltip>
         </div>
       </template>
       <el-table :data="recentActivities" style="width: 100%">
@@ -94,6 +105,13 @@
         </el-table-column>
         <el-table-column prop="description" label="描述" />
         <el-table-column prop="time" label="时间" width="180" />
+        <el-table-column label="来源" width="100">
+          <template #default="{ row }">
+            <el-tag v-if="row.source === 'supabase'" type="success">实时</el-tag>
+            <el-tag v-else-if="row.source === 'local_storage'" type="warning">缓存</el-tag>
+            <el-tag v-else type="info">示例</el-tag>
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
   </div>
@@ -101,10 +119,9 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { supabase, supabaseAdmin } from '@/lib/supabase'
 import { ElMessage } from 'element-plus'
-import { User, Document, ChatLineRound, Date } from '@element-plus/icons-vue'
-import { User, Document, ChatLineRound, Date } from '@element-plus/icons-vue'
+import { User, Document, ChatLineRound, Calendar, Refresh, InfoFilled } from '@element-plus/icons-vue'
+import { getStats, getRecentActivities, getSystemStatus, testSupabaseConnection } from '@/utils/dataService'
 
 const stats = ref({
   totalUsers: 0,
@@ -114,149 +131,107 @@ const stats = ref({
 })
 
 const recentActivities = ref([])
+const systemStatus = ref({})
+const loading = ref(false)
 
 const getActivityType = (type) => {
   const typeMap = {
     '用户': 'success',
     '文章': 'primary',
-    '评论': 'warning'
+    '评论': 'warning',
+    '系统': 'info'
   }
   return typeMap[type] || 'info'
 }
 
+const formatTime = (timestamp) => {
+  return new Date(timestamp).toLocaleString('zh-CN')
+}
+
+const refreshData = async () => {
+  loading.value = true
+  await loadData()
+  loading.value = false
+  ElMessage.success('数据已刷新')
+}
+
 const loadData = async () => {
   try {
-    console.log('🔍 开始连接Supabase数据库获取统计数据...')
+    console.log('🔍 开始加载仪表盘数据...')
     
-    // 获取文章总数 - 使用admin权限
-    const { count: postCount, error: postError } = await supabaseAdmin
-      .from('posts')
-      .select('*', { count: 'exact', head: true })
+    // 获取系统状态 - 确保在数据加载前测试连接
+    await testSupabaseConnection()
+    systemStatus.value = getSystemStatus()
     
-    if (!postError) {
-      stats.value.totalPosts = postCount || 0
-      console.log('✅ 文章总数:', postCount)
+    // 使用智能数据服务获取统计数据
+    const statsData = await getStats()
+    stats.value = {
+      totalUsers: statsData.totalUsers,
+      totalPosts: statsData.totalPosts,
+      totalComments: statsData.totalComments,
+      todayUsers: statsData.todayUsers
+    }
+    
+    // 根据数据源显示不同的提示信息
+    if (systemStatus.value.supabase) {
+      console.log('✅ 数据来源: Supabase数据库')
+      ElMessage.success('数据库连接正常')
+    } else if (statsData.dataSource.posts === 'local_storage') {
+      console.log('📱 数据来源: 本地缓存')
+      ElMessage.info('正在使用本地缓存数据，数据可能不是最新的')
     } else {
-      console.error('❌ 获取文章总数失败:', postError)
-      // 降级处理：使用示例数据
-      stats.value.totalPosts = 25
+      console.log('📄 数据来源: 示例数据')
+      ElMessage.warning('数据库连接失败，正在使用示例数据演示系统功能...')
     }
     
-    // 获取评论总数 - 使用admin权限
-    const { count: commentCount, error: commentError } = await supabaseAdmin
-      .from('post_comments')
-      .select('*', { count: 'exact', head: true })
-    
-    if (!commentError) {
-      stats.value.totalComments = commentCount || 0
-      console.log('✅ 评论总数:', commentCount)
-    } else {
-      console.error('❌ 获取评论总数失败:', commentError)
-      // 降级处理：使用示例数据
-      stats.value.totalComments = 128
-    }
-    
-    // 由于没有用户表，用户相关数据使用默认值
-    stats.value.totalUsers = 15
-    stats.value.todayUsers = 2
-    
-    // 获取最近活动 - 文章发布 - 使用admin权限
-    const { data: recentPosts, error: postsError } = await supabaseAdmin
-      .from('posts')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(5)
-    
-    if (!postsError && recentPosts && recentPosts.length > 0) {
-      recentPosts.forEach(post => {
-        recentActivities.value.push({
-          type: '文章',
-          description: `文章 "${post.title || '无标题'}" 发布`,
-          time: new Date(post.created_at).toLocaleString('zh-CN')
-        })
-      })
-      console.log('✅ 获取最近文章活动成功')
-    } else {
-      console.error('❌ 获取最近文章活动失败:', postsError)
-      // 降级处理：添加示例文章活动
-      recentActivities.value.push({
-        type: '文章',
-        description: '文章 "欢迎使用博客管理系统" 发布',
-        time: new Date().toLocaleString('zh-CN')
-      })
-    }
-    
-    // 获取最近活动 - 评论 - 使用admin权限
-    const { data: recentComments, error: commentsError } = await supabaseAdmin
-      .from('post_comments')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(5)
-    
-    if (!commentsError && recentComments && recentComments.length > 0) {
-      recentComments.forEach(comment => {
-        recentActivities.value.push({
-          type: '评论',
-          description: `用户发表了新评论`,
-          time: new Date(comment.created_at).toLocaleString('zh-CN')
-        })
-      })
-      console.log('✅ 获取最近评论活动成功')
-    } else {
-      console.error('❌ 获取最近评论活动失败:', commentsError)
-      // 降级处理：添加示例评论活动
-      recentActivities.value.push({
-        type: '评论',
-        description: '用户发表了对系统功能的评论',
-        time: new Date(Date.now() - 3600000).toLocaleString('zh-CN')
-      })
-    }
-    
-    // 如果没有任何数据，添加一些默认活动
-    if (recentActivities.value.length === 0) {
-      recentActivities.value.push({
-        type: '系统',
-        description: '系统初始化完成',
-        time: new Date().toLocaleString('zh-CN')
-      })
-    }
-    
-    // 按时间排序
-    recentActivities.value.sort((a, b) => new Date(b.time) - new Date(a.time))
-    recentActivities.value = recentActivities.value.slice(0, 4)
+    // 获取最近活动
+    recentActivities.value = await getRecentActivities()
     
     console.log('✅ 仪表盘数据加载完成')
     
   } catch (error) {
     console.error('加载数据失败:', error)
-    ElMessage.warning('数据库连接失败，正在使用示例数据...')
+    ElMessage.error('数据加载失败，请检查系统连接')
     
-    // 降级处理：使用完整的示例数据
-    stats.value.totalUsers = 15
-    stats.value.totalPosts = 25
-    stats.value.totalComments = 128
-    stats.value.todayUsers = 2
+    // 更新系统状态为离线
+    systemStatus.value = {
+      supabase: false,
+      lastSync: null,
+      timestamp: new Date().toISOString()
+    }
+    
+    // 最终降级处理：使用完整的示例数据
+    stats.value = {
+      totalUsers: 15,
+      totalPosts: 25,
+      totalComments: 128,
+      todayUsers: 2
+    }
     
     recentActivities.value = [
       {
         type: '系统',
         description: '博客管理系统初始化完成',
-        time: new Date().toLocaleString('zh-CN')
+        time: new Date().toLocaleString('zh-CN'),
+        source: 'default'
       },
       {
         type: '文章',
         description: '文章 "欢迎使用博客管理系统" 发布',
-        time: new Date(Date.now() - 86400000).toLocaleString('zh-CN')
+        time: new Date(Date.now() - 86400000).toLocaleString('zh-CN'),
+        source: 'default'
       },
       {
         type: '评论',
         description: '用户发表了对系统功能的评论',
-        time: new Date(Date.now() - 172800000).toLocaleString('zh-CN')
+        time: new Date(Date.now() - 172800000).toLocaleString('zh-CN'),
+        source: 'default'
       },
       {
         type: '文章',
         description: '文章 "如何配置数据库连接" 发布',
-        time: new Date(Date.now() - 259200000).toLocaleString('zh-CN')
+        time: new Date(Date.now() - 259200000).toLocaleString('zh-CN'),
+        source: 'default'
       }
     ]
   }
@@ -284,6 +259,19 @@ onMounted(() => {
 .dashboard-header p {
   margin: 0;
   color: #666;
+}
+
+.status-indicator {
+  font-size: 14px;
+  margin-top: 5px;
+}
+
+.status-indicator.online {
+  color: #67c23a;
+}
+
+.status-indicator.offline {
+  color: #f56c6c;
 }
 
 .stats-grid {
@@ -337,11 +325,15 @@ onMounted(() => {
 .card-header {
   font-weight: 600;
   color: #303133;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .action-buttons {
   display: flex;
   gap: 15px;
+  flex-wrap: wrap;
 }
 
 .recent-activity {

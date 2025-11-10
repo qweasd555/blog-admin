@@ -10,32 +10,15 @@ import router from './router'
 
 const app = createApp(App)
 
-// 按需注册图标（只注册常用的）
-const requiredIcons = [
-  'Edit', 'Delete', 'View', 'Search', 'Plus', 'Minus',
-  'Setting', 'User', 'Lock', 'Message', 'Document', 'Folder'
-]
-
-requiredIcons.forEach(iconName => {
-  const iconComponent = ElementPlusIconsVue[iconName]
-  if (iconComponent) {
-    app.component(iconName, iconComponent)
-  }
-})
+// 注册所有Element Plus图标
+for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+  app.component(key, component)
+}
 
 app.use(createPinia())
 app.use(router)
 app.use(ElementPlus, {
-  locale: zhCn,
-  // 按需导入组件
-  import: true,
-  // 配置按需加载的组件
-  components: [
-    'ElButton', 'ElTable', 'ElTableColumn', 'ElForm', 'ElFormItem',
-    'ElInput', 'ElSelect', 'ElOption', 'ElPagination', 'ElDialog',
-    'ElMessage', 'ElMessageBox', 'ElLoading', 'ElMenu', 'ElMenuItem',
-    'ElSubMenu', 'ElContainer', 'ElHeader', 'ElAside', 'ElMain'
-  ]
+  locale: zhCn
 })
 
 app.mount('#app')

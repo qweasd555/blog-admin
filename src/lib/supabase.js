@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
 // 从环境变量获取配置 - 使用博客项目的有效配置
+// 统一使用环境变量中的配置
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://qghxnulnxxtvaqupoxeo.supabase.co'
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnaHhudWxueHh0dmFxdXBveGVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEwMzcwMzAsImV4cCI6MjA3NjYxMzAzMH0._RahoiQh9FBFhcvirKqvm4SDZ2dlK7rfZSCC02ZbSXM'
 const supabaseServiceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnaHhudWxueHh0dmFxdXBveGVvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTAzNzAzMCwiZXhwIjoyMDc2NjEzMDMwfQ.sPtCIEOcftn-B9Z_vbAHsZ5VfxhD2yXShZzf3uf7toM'
@@ -15,20 +16,16 @@ if (!supabaseUrl || !supabaseAnonKey) {
   })
 }
 
-// 使用单例模式避免重复创建客户端
-let supabaseInstance = null
-let supabaseAdminInstance = null
-
-// 创建共享的认证配置，避免重复实例
-const authOptions = {
-  persistSession: true,
-  autoRefreshToken: true,
-  storageKey: 'supabase.auth.token'
-}
-
-// 创建普通权限的 Supabase 客户端（单例模式）
-if (!supabaseInstance) {
-  supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
+// 使用浏览器全局单例，避免 HMR 产生多个实例与 storage key 冲突
+const createSupabaseClient = () => {
+  // 创建共享的认证配置，避免重复实例
+  const authOptions = {
+    persistSession: true,
+    autoRefreshToken: true,
+    storageKey: 'blog_admin.auth'
+  }
+  
+  const client = createClient(supabaseUrl, supabaseAnonKey, {
     auth: authOptions,
     global: {
       headers: {
@@ -36,17 +33,16 @@ if (!supabaseInstance) {
       },
     },
   })
+  
+  return client
 }
 
-export const supabase = supabaseInstance
-
-// 创建高权限的 Supabase 客户端（单例模式）
-if (!supabaseAdminInstance) {
-  supabaseAdminInstance = createClient(supabaseUrl, supabaseServiceRoleKey, {
+const createSupabaseAdminClient = () => {
+  const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: {
       persistSession: false, // 禁用持久化避免冲突
       autoRefreshToken: false,
-      storageKey: 'supabase.admin.token'
+      storageKey: 'blog_admin.admin'
     },
     global: {
       headers: {
@@ -54,9 +50,17 @@ if (!supabaseAdminInstance) {
       },
     },
   })
+  
+  return adminClient
 }
 
-export const supabaseAdmin = supabaseAdminInstance || supabaseInstance
+// 创建单例实例（支持浏览器全局缓存防止重复）
+const globalAny = typeof window !== 'undefined' ? window : globalThis
+globalAny.__blog_admin_supabase__ = globalAny.__blog_admin_supabase__ || createSupabaseClient()
+globalAny.__blog_admin_supabase_admin__ = globalAny.__blog_admin_supabase_admin__ || createSupabaseAdminClient()
+
+export const supabase = globalAny.__blog_admin_supabase__
+export const supabaseAdmin = globalAny.__blog_admin_supabase_admin__
 
 // 详细的连接测试
 export const testConnection = async () => {

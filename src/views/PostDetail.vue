@@ -60,6 +60,7 @@ const loading = ref(false)
 const post = ref(null)
 
 const postId = route.params.id
+const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value || '')
 
 const formatDate = (dateString) => {
   return new Date(dateString).toLocaleString('zh-CN')
@@ -69,11 +70,23 @@ const loadPostDetail = async () => {
   try {
     loading.value = true
     
-    const { data, error } = await supabase
-      .from('posts')
-      .select('*')
-      .eq('id', postId)
-      .single()
+    let data, error
+
+    if (isUuid(postId)) {
+      ;({ data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .eq('id', postId)
+        .single())
+    } else {
+      // 非 UUID 的情况，尝试按标题匹配第一条
+      ;({ data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .eq('title', postId)
+        .limit(1)
+        .single())
+    }
     
     if (error) {
       console.error('获取文章详情失败:', error)
@@ -91,7 +104,8 @@ const loadPostDetail = async () => {
 }
 
 const editPost = () => {
-  router.push(`/posts/edit/${postId}`)
+  const idToUse = post.value?.id || postId
+  router.push(`/posts/edit/${idToUse}`)
 }
 
 const goBack = () => {
