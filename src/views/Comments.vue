@@ -300,7 +300,7 @@ const deleteComment = async (comment) => {
 }
 
 // 查看文章详情
-const viewPost = (postId) => {
+const viewPost = async (postId) => {
   if (!postId) {
     ElMessage.warning('该评论未关联有效文章')
     return
@@ -308,14 +308,47 @@ const viewPost = (postId) => {
   
   console.log('📖 跳转到文章管理页面，文章ID:', postId)
   
-  // 跳转到文章管理页面并传递文章ID参数
-  router.push({
-    path: '/posts',
-    query: { 
-      highlight: postId,
-      from: 'comments'
+  try {
+    // 先获取文章标题，用于搜索
+    const { supabaseAdmin } = await import('@/lib/supabase')
+    const { data: postData, error } = await supabaseAdmin
+      .from('posts')
+      .select('title')
+      .eq('id', postId)
+      .single()
+    
+    if (error) {
+      console.error('获取文章标题失败:', error)
+      // 如果无法获取标题，直接使用文章ID搜索
+      router.push({
+        path: '/posts',
+        query: { 
+          search: postId,
+          from: 'comments',
+          highlight: postId
+        }
+      })
+      return
     }
-  })
+    
+    // 使用文章标题作为搜索关键词
+    const searchKeyword = postData?.title || postId
+    
+    // 跳转到文章管理页面并传递搜索参数
+    router.push({
+      path: '/posts',
+      query: { 
+        search: searchKeyword,
+        from: 'comments',
+        highlight: postId
+      }
+    })
+    
+  } catch (error) {
+    console.error('跳转失败:', error)
+    // 备用方案：直接跳转
+    router.push('/posts')
+  }
 }
 
 onMounted(() => {

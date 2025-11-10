@@ -71,13 +71,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { supabase, supabaseAdmin } from '@/lib/supabase'
 
 const router = useRouter()
+const route = useRoute()
 const loading = ref(false)
 const searchKeyword = ref('')
 const currentPage = ref(1)
@@ -332,12 +333,48 @@ const loadPosts = async () => {
   }
 }
 
+// 处理路由参数，自动搜索对应文章
+const handleRouteParams = () => {
+  const searchParam = route.query.search
+  const highlightParam = route.query.highlight
+  const fromParam = route.query.from
+  
+  if (searchParam) {
+    // 如果有搜索参数，自动设置搜索关键词
+    searchKeyword.value = searchParam
+    console.log('🔍 自动搜索文章:', searchParam)
+    
+    // 如果是来自评论页面的跳转，显示提示信息
+    if (fromParam === 'comments') {
+      ElMessage.success(`已自动搜索到评论关联的文章`)
+    }
+  }
+  
+  // 处理高亮显示（可选功能）
+  if (highlightParam && filteredPosts.value.length > 0) {
+    setTimeout(() => {
+      // 可以在这里添加高亮显示的代码
+      console.log('✨ 高亮显示文章:', highlightParam)
+    }, 100)
+  }
+}
+
 const handleRefresh = () => {
   loadPosts()
 }
 
+// 监听路由变化，处理自动搜索
+watch(() => route.query, (newQuery) => {
+  if (newQuery.search) {
+    handleRouteParams()
+  }
+})
+
 onMounted(() => {
-  loadPosts()
+  loadPosts().then(() => {
+    // 数据加载完成后处理路由参数
+    handleRouteParams()
+  })
 })
 </script>
 
