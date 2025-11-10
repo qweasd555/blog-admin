@@ -43,7 +43,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
-import { supabase } from '@/lib/supabase'
+import { supabase, supabaseAdmin } from '@/lib/supabase'
 
 const route = useRoute()
 const router = useRouter()
@@ -112,33 +112,22 @@ const submitForm = async () => {
     
     loading.value = true
     
-    // 根据数据库表结构准备数据
-    const postData = {
-      title: form.title,
-      content: form.content,
-      author_name: form.author // 存储作者姓名
-    }
-    
-    // 如果是编辑模式，保持原来的author字段（UUID）
-    if (isEdit && form.author_id) {
-      postData.author = form.author_id
-    } else {
-      // 新建模式，需要生成或获取合适的author ID
-      // 这里简化处理：如果没有author_id，使用一个默认的UUID
-      // 实际应用中应该从用户系统获取正确的author ID
-      postData.author = 'admin-' + Date.now()
-    }
-    
-    console.log('📝 准备保存文章数据:', postData)
-    
-    let result
-    
     if (isEdit) {
+      // 编辑模式：只更新title和content字段，保持author和author_name字段不变
       console.log('🔄 开始更新文章，ID:', postId)
-      // 更新文章
-      const { data, error } = await supabase
+      
+      // 只更新标题和内容
+      const updateData = {
+        title: form.title,
+        content: form.content
+      }
+      
+      console.log('📝 准备保存文章数据:', updateData)
+      
+      // 使用高权限密钥更新文章
+      const { data, error } = await supabaseAdmin
         .from('posts')
-        .update(postData)
+        .update(updateData)
         .eq('id', postId)
         .select()
         
@@ -149,14 +138,26 @@ const submitForm = async () => {
       }
       
       console.log('✅ 更新成功:', data)
-      result = data
       ElMessage.success('文章更新成功')
     } else {
+      // 新建模式：需要设置author字段（UUID）
       console.log('➕ 开始创建新文章')
-      // 创建新文章
-      const { data, error } = await supabase
+      
+      // 为新文章生成一个默认的author UUID
+      // 实际应用中应该从用户系统获取正确的author ID
+      const newPostData = {
+        title: form.title,
+        content: form.content,
+        author: 'admin-' + Date.now(), // 临时使用时间戳作为标识
+        author_name: form.author
+      }
+      
+      console.log('📝 准备创建新文章数据:', newPostData)
+      
+      // 使用高权限密钥创建新文章
+      const { data, error } = await supabaseAdmin
         .from('posts')
-        .insert([postData])
+        .insert([newPostData])
         .select()
         
       if (error) {
@@ -166,7 +167,6 @@ const submitForm = async () => {
       }
       
       console.log('✅ 创建成功:', data)
-      result = data
       ElMessage.success('文章创建成功')
     }
     

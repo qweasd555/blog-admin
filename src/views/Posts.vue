@@ -37,13 +37,14 @@
       <el-table :data="filteredPosts" style="width: 100%" v-loading="loading">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="title" label="标题" />
-        <el-table-column prop="author" label="作者" width="120" />
+        <el-table-column prop="author_name" label="作者" width="120" />
         <el-table-column prop="created_at" label="发布时间" width="180">
           <template #default="{ row }">
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column prop="views" label="文章点赞量" width="100" />
+        <el-table-column prop="like_count" label="点赞数" width="80" />
+        <el-table-column prop="comment_count" label="评论数" width="80" />
         <el-table-column label="操作" width="200">
           <template #default="{ row }">
             <el-button size="small" @click="viewPost(row)">
@@ -98,7 +99,7 @@ const filteredPosts = computed(() => {
     const keyword = searchKeyword.value.toLowerCase()
     filtered = filtered.filter(post => 
       post.title.toLowerCase().includes(keyword) ||
-      post.author.toLowerCase().includes(keyword)
+      (post.author_name && post.author_name.toLowerCase().includes(keyword))
     )
   }
   
@@ -137,8 +138,8 @@ const deletePost = async (post) => {
       }
     )
     
-    // 从数据库中删除文章
-    const { error } = await supabase
+    // 使用高权限密钥从数据库中删除文章
+    const { error } = await supabaseAdmin
       .from('posts')
       .delete()
       .eq('id', post.id)
@@ -229,150 +230,98 @@ const loadPosts = async () => {
       return
     }
     
-    // 第二步：获取用户数据 - 简化逻辑，只查询关键表
-    console.log('👥 开始获取用户数据...')
-    let users = []
+    // 第二步：获取点赞和评论统计数据
+    console.log('📊 开始获取文章互动数据...')
     
-    // 尝试查询profiles表（这是Supabase推荐的用户信息表）
+    // 第三步：处理文章数据，添加点赞和评论数量
+    console.log('🔗 开始处理文章互动数据...')
+    
+    // 获取点赞统计数据
+    let likeCounts = {}
     try {
-      console.log('🔍 查询profiles表...')
-      const { data: profilesData, error: profilesError } = await supabase
-        .from('profiles')
-        .select('id, username, full_name, email, created_at')
-        .order('created_at', { ascending: false })
+      console.log('👍 获取点赞数据...')
+      // 尝试从post_like表获取点赞数据
+      const { data: postLikes, error: likesError } = await supabase
+        .from('post_like')
+        .select('post_id')
       
-      if (!profilesError && profilesData && profilesData.length > 0) {
-        console.log('✅ 从profiles表获取用户数据:', profilesData.length)
-        users = profilesData.map(profile => ({
-          id: profile.id,
-          username: profile.username || '用户',
-          nickname: profile.full_name || profile.username || '用户',
-          email: profile.email || '无邮箱',
-          created_at: profile.created_at
-        }))
+      if (!likesError && postLikes) {
+        // 按文章ID统计点赞数
+        postLikes.forEach(like => {
+          likeCounts[like.post_id] = (likeCounts[like.post_id] || 0) + 1
+        })
+        console.log('✅ 从post_like表获取点赞数据')
+      }
+      
+      // 如果post_like表不存在，尝试从post_likes表获取
+      if (Object.keys(likeCounts).length === 0) {
+        const { data: postLikes2, error: likesError2 } = await supabase
+          .from('post_likes')
+          .select('post_id')
+        
+        if (!likesError2 && postLikes2) {
+          postLikes2.forEach(like => {
+            likeCounts[like.post_id] = (likeCounts[like.post_id] || 0) + 1
+          })
+          console.log('✅ 从post_likes表获取点赞数据')
+        }
       }
     } catch (error) {
-      console.log('❌ profiles表查询失败:', error.message)
+      console.log('⚠️ 获取点赞数据失败:', error.message)
     }
     
-    // 如果profiles表没有数据，尝试查询user_profiles表
-    if (users.length === 0) {
-      try {
-        console.log('🔍 查询user_profiles表...')
-        const { data: userProfilesData, error: userProfilesError } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(100)
-        
-        if (!userProfilesError && userProfilesData && userProfilesData.length > 0) {
-          console.log('✅ 从user_profiles表获取用户数据:', userProfilesData.length)
-          users = userProfilesData.map(user => ({
-            id: user.id || user.user_id,
-            username: user.username || user.nickname || '用户',
-            nickname: user.nickname || user.username || '用户',
-            email: user.email || '无邮箱',
-            created_at: user.created_at
-          }))
-        }
-      } catch (error) {
-        console.log('❌ user_profiles表查询失败:', error.message)
+    // 获取评论统计数据
+    let commentCounts = {}
+    try {
+      console.log('💬 获取评论数据...')
+      // 尝试从post_comment表获取评论数据
+      const { data: postComments, error: commentsError } = await supabase
+        .from('post_comment')
+        .select('post_id')
+      
+      if (!commentsError && postComments) {
+        // 按文章ID统计评论数
+        postComments.forEach(comment => {
+          commentCounts[comment.post_id] = (commentCounts[comment.post_id] || 0) + 1
+        })
+        console.log('✅ 从post_comment表获取评论数据')
       }
-    }
-    
-    // 如果还没有用户数据，尝试使用Service Role Key查询auth.users表
-    if (users.length === 0) {
-      try {
-        console.log('🔍 使用Service Role Key查询auth.users表...')
-        const { data: authUsers, error: authError } = await supabaseAdmin
-          .from('auth.users')
-          .select('id, email, raw_user_meta_data, created_at')
-          .order('created_at', { ascending: false })
-          .limit(50)
+      
+      // 如果post_comment表不存在，尝试从post_comments表获取
+      if (Object.keys(commentCounts).length === 0) {
+        const { data: postComments2, error: commentsError2 } = await supabase
+          .from('post_comments')
+          .select('post_id')
         
-        if (!authError && authUsers && authUsers.length > 0) {
-          console.log('✅ 从auth.users表获取用户数据:', authUsers.length)
-          users = authUsers.map(user => {
-            const metaData = user.raw_user_meta_data || {}
-            const username = metaData.username || user.email?.split('@')[0] || '用户'
-            const nickname = metaData.name || metaData.nickname || username
-            
-            return {
-              id: user.id,
-              username: username,
-              nickname: nickname,
-              email: user.email,
-              created_at: user.created_at
-            }
+        if (!commentsError2 && postComments2) {
+          postComments2.forEach(comment => {
+            commentCounts[comment.post_id] = (commentCounts[comment.post_id] || 0) + 1
           })
+          console.log('✅ 从post_comments表获取评论数据')
         }
-      } catch (error) {
-        console.log('❌ auth.users表查询失败:', error.message)
       }
+    } catch (error) {
+      console.log('⚠️ 获取评论数据失败:', error.message)
     }
     
-    console.log('📊 最终获取到用户数据:', users.length)
-    if (users.length > 0) {
-      console.log('📋 用户列表:', users.map(u => ({ id: u.id, name: u.nickname })))
-    }
-    
-    // 第三步：处理文章数据，匹配作者
-    console.log('🔗 开始用户-文章匹配...')
+    // 处理文章数据
     posts.value = postsData.map(post => {
-      let authorName = post.author || '匿名作者'
-      let matchedUserId = null
+      // 使用author_name字段作为作者显示
+      const authorName = post.author_name || post.author || '匿名作者'
       
-      // 简单匹配逻辑：检查user_id字段
-      if (post.user_id && users.length > 0) {
-        const matchedUser = users.find(u => u.id === post.user_id)
-        if (matchedUser) {
-          authorName = matchedUser.nickname || matchedUser.username || '用户'
-          matchedUserId = matchedUser.id
-          console.log(`✅ 文章 ${post.id} 匹配到用户: ${authorName} (ID: ${matchedUserId})`)
-        }
-      }
+      // 计算点赞数量
+      const likeCount = likeCounts[post.id] || 0
       
-      // 如果user_id不匹配，尝试从author字段匹配
-      if (!matchedUserId && post.author && users.length > 0) {
-        // 如果author是UUID格式，尝试匹配ID
-        if (post.author.match(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i)) {
-          const matchedUser = users.find(u => u.id === post.author)
-          if (matchedUser) {
-            authorName = matchedUser.nickname || matchedUser.username || '用户'
-            matchedUserId = matchedUser.id
-            console.log(`✅ 文章 ${post.id} 通过author UUID匹配到用户: ${authorName}`)
-          }
-        } else {
-          // 如果author是用户名，直接使用
-          const matchedUser = users.find(u => 
-            u.username === post.author || 
-            u.nickname === post.author || 
-            u.email === post.author
-          )
-          if (matchedUser) {
-            authorName = matchedUser.nickname || matchedUser.username || post.author
-            matchedUserId = matchedUser.id
-            console.log(`✅ 文章 ${post.id} 通过作者名匹配到用户: ${authorName}`)
-          }
-        }
-      }
-      
-      // 计算浏览量/点赞量
-      let views = 0
-      const viewFields = ['views', 'view_count', 'likes', 'like_count']
-      for (const field of viewFields) {
-        if (post[field] !== undefined && post[field] !== null) {
-          views = parseInt(post[field]) || 0
-          if (views > 0) break
-        }
-      }
+      // 计算评论数量
+      const commentCount = commentCounts[post.id] || 0
       
       return {
         id: post.id,
         title: post.title || '无标题',
-        author: authorName,
+        author_name: authorName,
         created_at: post.created_at || new Date().toISOString(),
-        views: views
+        like_count: likeCount,
+        comment_count: commentCount
       }
     })
     

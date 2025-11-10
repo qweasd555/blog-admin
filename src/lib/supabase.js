@@ -1,15 +1,17 @@
 import { createClient } from '@supabase/supabase-js'
 
 // 从环境变量获取配置 - 使用博客项目的有效配置
-const supabaseUrl = 'https://qghxnulnxxtvaqupoxeo.supabase.co'
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnaHhudWxueHh0dmFxdXBveGVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEwMzcwMzAsImV4cCI6MjA3NjYxMzAzMH0._RahoiQh9FBFhcvirKqvm4SDZ2dlK7rfZSCC02ZbSXM'
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://qghxnulnxxtvaqupoxeo.supabase.co'
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnaHhudWxueHh0dmFxdXBveGVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEwMzcwMzAsImV4cCI6MjA3NjYxMzAzMH0._RahoiQh9FBFhcvirKqvm4SDZ2dlK7rfZSCC02ZbSXM'
+const supabaseServiceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnaHhudWxueHh0dmFxdXBveGVvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTAzNzAzMCwiZXhwIjoyMDc2NjEzMDMwfQ.sPtCIEOcftn-B9Z_vbAHsZ5VfxhD2yXShZzf3uf7toM'
 
 // 验证环境变量
 if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('Supabase 环境变量未配置，请检查 .env 文件')
   console.log('当前配置:', {
     url: supabaseUrl,
-    key: supabaseAnonKey ? '已配置' : '未配置'
+    anonKey: supabaseAnonKey ? '已配置' : '未配置',
+    serviceRoleKey: supabaseServiceRoleKey ? '已配置' : '未配置'
   })
 }
 
@@ -39,9 +41,8 @@ if (!supabaseInstance) {
 export const supabase = supabaseInstance
 
 // 创建高权限的 Supabase 客户端（单例模式）
-// 由于service_role密钥未配置，暂时使用普通权限
 if (!supabaseAdminInstance) {
-  supabaseAdminInstance = createClient(supabaseUrl, supabaseAnonKey, {
+  supabaseAdminInstance = createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: {
       persistSession: false, // 禁用持久化避免冲突
       autoRefreshToken: false,
