@@ -34,7 +34,18 @@
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="content" label="评论内容" />
         <el-table-column prop="author" label="评论用户" width="120" />
-        <el-table-column prop="post_title" label="所属文章" />
+        <el-table-column prop="post_title" label="所属文章" width="200">
+          <template #default="{ row }">
+            <el-link 
+              type="primary" 
+              :underline="false" 
+              @click="viewPost(row.post_id)"
+              style="cursor: pointer"
+            >
+              {{ row.post_title }}
+            </el-link>
+          </template>
+        </el-table-column>
         <el-table-column prop="created_at" label="评论时间" width="180">
           <template #default="{ row }">
             {{ formatDate(row.created_at) }}
@@ -66,10 +77,12 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh } from '@element-plus/icons-vue'
 import { supabase } from '@/lib/supabase'
 
+const router = useRouter()
 const loading = ref(false)
 const searchKeyword = ref('')
 const currentPage = ref(1)
@@ -169,6 +182,7 @@ const loadComments = async () => {
       id: item.id,
       content: item.content || '无内容',
       author: item.author_name || item.author || '匿名用户',
+      post_id: item.post_id, // 保留文章ID用于跳转
       post_title: postTitles[item.post_id] || `文章ID: ${item.post_id}`,
       created_at: item.created_at || new Date().toISOString()
     }))
@@ -283,6 +297,25 @@ const deleteComment = async (comment) => {
     // 用户取消操作
     console.log('用户取消删除操作')
   }
+}
+
+// 查看文章详情
+const viewPost = (postId) => {
+  if (!postId) {
+    ElMessage.warning('该评论未关联有效文章')
+    return
+  }
+  
+  console.log('📖 跳转到文章管理页面，文章ID:', postId)
+  
+  // 跳转到文章管理页面并传递文章ID参数
+  router.push({
+    path: '/posts',
+    query: { 
+      highlight: postId,
+      from: 'comments'
+    }
+  })
 }
 
 onMounted(() => {
