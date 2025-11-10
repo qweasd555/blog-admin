@@ -40,22 +40,9 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="100">
+
+        <el-table-column label="操作" width="120">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'approved' ? 'success' : 'warning'">
-              {{ row.status === 'approved' ? '已审核' : '待审核' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="200">
-          <template #default="{ row }">
-            <el-button
-              size="small"
-              :type="row.status === 'approved' ? 'warning' : 'success'"
-              @click="toggleCommentStatus(row)"
-            >
-              {{ row.status === 'approved' ? '取消审核' : '通过审核' }}
-            </el-button>
             <el-button size="small" type="danger" @click="deleteComment(row)">
               删除
             </el-button>
@@ -80,6 +67,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search, Refresh } from '@element-plus/icons-vue'
 import { supabase } from '@/lib/supabase'
 
 const loading = ref(false)
@@ -117,46 +105,85 @@ const loadComments = async () => {
     
     console.log('🔍 开始连接Supabase数据库获取评论数据...')
     
-    // 直接连接真实的Supabase数据库，使用 post_comments 表
-    const { data, error } = await supabase
+    // 优先使用高级权限获取数据，确保完整访问
+    console.log('🔑 使用高级权限加载评论数据...')
+    const { supabaseAdmin } = await import('@/lib/supabase')
+    
+    let commentsData = []
+    let hasError = false
+    
+    // 先尝试使用管理员权限查询
+    const { data: adminData, error: adminError } = await supabaseAdmin
       .from('post_comments')
       .select('*')
       .order('created_at', { ascending: false })
     
-    if (error) {
-      console.error('❌ 获取评论数据失败:', error)
-      ElMessage.error(`获取评论数据失败: ${error.message}`)
+    if (adminError) {
+      console.error('❌ 高级权限获取评论数据失败:', adminError)
       
-      // 如果失败，尝试检查表是否存在
-      try {
-        const { data: testData, error: testError } = await supabase
-          .from('post_comments')
-          .select('id')
-          .limit(1)
-        
-        if (testError) {
-          ElMessage.warning('评论表可能不存在，请检查数据库表结构')
-        }
-      } catch (testErr) {
-        console.error('测试连接失败:', testErr)
+      // 如果高级权限失败，尝试普通权限
+      console.log('🔄 尝试使用普通权限获取数据...')
+      const { data: normalData, error: normalError } = await supabase
+        .from('post_comments')
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (normalError) {
+        console.error('❌ 普通权限获取也失败:', normalError)
+        ElMessage.error(`获取评论数据失败: ${normalError.message}`)
+        loading.value = false
+        return
       }
       
-      return
+      commentsData = normalData
+      console.log('✅ 使用普通权限成功获取评论数据:', commentsData)
+    } else {
+      commentsData = adminData
+      console.log('✅ 使用高级权限成功获取评论数据:', commentsData)
     }
     
-    console.log('✅ 成功获取评论数据:', data)
+    // 获取所有文章ID
+    const postIds = [...new Set(commentsData.map(comment => comment.post_id).filter(Boolean))]
+    
+    // 批量查询文章标题（使用高级权限确保能访问）
+    let postTitles = {}
+    if (postIds.length > 0) {
+      console.log('📚 加载文章标题信息...')
+      const { data: postsData, error: postsError } = await supabaseAdmin
+        .from('posts')
+        .select('id, title')
+        .in('id', postIds)
+      
+      if (!postsError && postsData) {
+        postsData.forEach(post => {
+          postTitles[post.id] = post.title
+        })
+        console.log('✅ 成功加载文章标题信息')
+      } else {
+        console.log('⚠️ 加载文章标题信息失败，将使用默认标题')
+      }
+    }
     
     // 转换数据格式
-    comments.value = data.map(comment => ({
-      id: comment.id,
-      content: comment.content || '无内容',
-      author: comment.author_name || '匿名用户',
-      post_title: '关联文章', // 由于没有直接关联文章标题，显示通用文本
-      created_at: comment.created_at || new Date().toISOString(),
-      status: 'approved' // 评论默认都是已审核状态
+    const processedComments = commentsData.map(item => ({
+      id: item.id,
+      content: item.content || '无内容',
+      author: item.author_name || item.author || '匿名用户',
+      post_title: postTitles[item.post_id] || `文章ID: ${item.post_id}`,
+      created_at: item.created_at || new Date().toISOString()
     }))
     
-    ElMessage.success(`成功加载 ${comments.value.length} 条评论`)
+    // 使用新的数组引用，确保 Vue 响应式更新
+    comments.value = [...processedComments]
+    
+    console.log(`🎉 成功加载 ${comments.value.length} 条评论`)
+    
+    // 只有在初次加载时显示成功消息
+    if (processedComments.length > 0) {
+      ElMessage.success(`成功加载 ${processedComments.length} 条评论`)
+    } else {
+      ElMessage.info('暂无评论数据')
+    }
   } catch (error) {
     console.error('加载评论数据失败:', error)
     ElMessage.error('加载评论数据失败，请检查数据库连接')
@@ -165,35 +192,7 @@ const loadComments = async () => {
   }
 }
 
-const toggleCommentStatus = async (comment) => {
-  try {
-    await ElMessageBox.confirm(
-      `确定要${comment.status === 'approved' ? '拒绝' : '通过'}评论吗？`,
-      '提示',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-    
-    // 更新数据库中的评论状态
-    const { error } = await supabase
-      .from('post_comments')
-      .update({ status: comment.status === 'approved' ? 'rejected' : 'approved' })
-      .eq('id', comment.id)
-    
-    if (error) {
-      ElMessage.error('更新评论状态失败: ' + error.message)
-      return
-    }
-    
-    comment.status = comment.status === 'approved' ? 'rejected' : 'approved'
-    ElMessage.success('操作成功')
-  } catch (error) {
-    // 用户取消操作
-  }
-}
+
 
 const deleteComment = async (comment) => {
   try {
@@ -207,21 +206,82 @@ const deleteComment = async (comment) => {
       }
     )
     
-    // 从数据库删除评论
-    const { error } = await supabase
+    console.log('🗑️ 开始删除评论:', comment.id)
+    
+    // 优先使用管理员权限进行删除，确保高权限操作
+    console.log('🔑 使用高级权限删除评论...')
+    const { supabaseAdmin } = await import('@/lib/supabase')
+    
+    // 详细记录删除操作
+    const { data, error } = await supabaseAdmin
       .from('post_comments')
       .delete()
       .eq('id', comment.id)
+      .select()  // 添加select获取删除确认
+    
+    console.log('📊 删除操作响应:', { data, error })
     
     if (error) {
-      ElMessage.error('删除评论失败: ' + error.message)
-      return
+      console.error('❌ 高级权限删除失败:', error)
+      
+      // 如果高级权限失败，尝试普通权限作为备选
+      console.log('🔄 尝试使用普通权限删除...')
+      const { error: normalError } = await supabase
+        .from('post_comments')
+        .delete()
+        .eq('id', comment.id)
+      
+      if (normalError) {
+        console.error('❌ 普通权限删除也失败:', normalError)
+        
+        // 最后尝试：检查表名是否正确
+        console.log('🔄 尝试其他可能的表名...')
+        const tableNames = ['comments', 'post_comments', 'article_comments', 'user_comments']
+        
+        for (const tableName of tableNames) {
+          try {
+            console.log(`🔄 尝试表名: ${tableName}`)
+            const result = await supabaseAdmin
+              .from(tableName)
+              .delete()
+              .eq('id', comment.id)
+              
+            if (!result.error) {
+              console.log(`✅ 在表 ${tableName} 中删除成功`)
+              break
+            }
+          } catch (tableErr) {
+            console.log(`❌ 表 ${tableName} 删除失败:`, tableErr.message)
+          }
+        }
+        
+        ElMessage.error('删除评论失败，请检查数据库权限设置')
+        return
+      }
     }
     
+    console.log('✅ 删除评论成功')
+    
+    // 从本地数据中立即移除评论，给用户即时反馈
+    const originalLength = comments.value.length
     comments.value = comments.value.filter(c => c.id !== comment.id)
+    console.log(`📊 本地数据更新: ${originalLength} -> ${comments.value.length} 条评论`)
+    
     ElMessage.success('删除成功')
+    
+    // 不立即自动刷新，让用户看到删除效果
+    // 如果需要最新数据，用户可以手动点击"刷新"按钮
+    console.log('ℹ️ 删除完成，本地数据已更新')
+    
+    // 可选：3秒后自动刷新确认删除效果
+    setTimeout(() => {
+      console.log('🔄 自动刷新以确认删除效果...')
+      loadComments()
+    }, 3000)
+    
   } catch (error) {
     // 用户取消操作
+    console.log('用户取消删除操作')
   }
 }
 

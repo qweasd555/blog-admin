@@ -20,10 +20,6 @@
         </el-input>
         
         <div class="action-buttons">
-          <el-button type="primary" @click="createPost">
-            <el-icon><Plus /></el-icon>
-            新建文章
-          </el-button>
           <el-button @click="handleRefresh">
             <el-icon><Refresh /></el-icon>
             刷新
@@ -115,7 +111,7 @@ const formatDate = (dateString) => {
 }
 
 const createPost = () => {
-  router.push('/posts/edit')
+  router.push('/posts/edit/')
 }
 
 const viewPost = (post) => {

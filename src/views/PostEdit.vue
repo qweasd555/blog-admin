@@ -145,10 +145,19 @@ const submitForm = async () => {
       
       // 为新文章生成一个默认的author UUID
       // 实际应用中应该从用户系统获取正确的author ID
+      // 生成一个简单的UUID格式字符串
+      const generateSimpleUUID = () => {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          const r = Math.random() * 16 | 0
+          const v = c === 'x' ? r : (r & 0x3 | 0x8)
+          return v.toString(16)
+        })
+      }
+      
       const newPostData = {
         title: form.title,
         content: form.content,
-        author: 'admin-' + Date.now(), // 临时使用时间戳作为标识
+        author: generateSimpleUUID(), // 使用UUID格式
         author_name: form.author
       }
       
@@ -157,7 +166,7 @@ const submitForm = async () => {
       // 使用高权限密钥创建新文章
       const { data, error } = await supabaseAdmin
         .from('posts')
-        .insert([newPostData])
+        .insert(newPostData)
         .select()
         
       if (error) {
