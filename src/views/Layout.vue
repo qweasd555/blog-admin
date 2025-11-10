@@ -63,7 +63,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
@@ -81,8 +81,13 @@ const route = useRoute()
 const activeMenu = ref('')
 const userInfo = ref({ username: '管理员' })
 
-onMounted(() => {
+// 更新菜单激活状态
+const updateActiveMenu = () => {
   activeMenu.value = route.name || ''
+}
+
+onMounted(() => {
+  updateActiveMenu()
   const userData = localStorage.getItem('admin_user')
   if (userData) {
     userInfo.value = JSON.parse(userData)
@@ -90,6 +95,11 @@ onMounted(() => {
     // 从当前用户获取真实信息
     loadCurrentUserInfo()
   }
+})
+
+// 监听路由变化，实时更新菜单激活状态
+watch(() => route.path, () => {
+  updateActiveMenu()
 })
 
 const loadCurrentUserInfo = async () => {
